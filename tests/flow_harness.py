@@ -117,14 +117,18 @@ class Session:
         self.emulator = None
         self.remote = None
 
-    def start(self):
+    def start(self, held_buttons=()):
         self.emulator = PyBoy(str(self.rom_path), window="null")
         self.remote = SimulatedRemote(self.emulator, self.symbols)
+        for button in held_buttons:
+            self.emulator.button_press(button)
         self.emulator.tick(BOOT_FRAMES, False)
+        for button in held_buttons:
+            self.emulator.button_release(button)
 
-    def power_cycle(self):
+    def power_cycle(self, held_buttons=()):
         self.emulator.stop(save=True)
-        self.start()
+        self.start(held_buttons)
 
     def close(self):
         if self.emulator is not None:

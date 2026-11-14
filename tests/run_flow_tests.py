@@ -167,6 +167,28 @@ def scenario_full_lifecycle(session):
     expect(list_names(session) == ["A"], f"deletion not persistent: {list_names(session)}")
 
 
+def scenario_sram_diagnostic_survives_power_cycle(session):
+    session.power_cycle(held_buttons=["select"])
+    expect(session.wait_for_text("SRAM TEST"), "diagnostic menu not shown with SELECT held at boot")
+    session.press("a")
+    expect(session.wait_for_text("ALL BANKS OK"), "immediate verification after the write did not pass")
+    expect(session.screen_contains("BANK 08 OK"), "last bank not reported OK")
+    session.press("a")
+    session.power_cycle(held_buttons=["select"])
+    expect(session.wait_for_text("SRAM TEST"), "diagnostic menu not shown after the power cycle")
+    session.press("start")
+    expect(session.wait_for_text("ALL BANKS OK"), "pattern not intact after the power cycle")
+    session.press("a")
+    expect(session.wait_for_text("B=EXIT"), "diagnostic menu not shown after the verification")
+    session.press("b")
+    expect(session.wait_for_text(WAITING_TEXT), "application did not start after leaving the diagnostic")
+
+
+def scenario_normal_boot_skips_diagnostic(session):
+    expect(session.wait_for_text(WAITING_TEXT), "reception not shown on a normal boot")
+    expect(not session.screen_contains("SRAM TEST"), "diagnostic shown without SELECT held")
+
+
 SCENARIOS = [
     scenario_first_launch_enters_reception,
     scenario_quiet_signal_reports_error_three,
@@ -174,6 +196,8 @@ SCENARIOS = [
     scenario_deleting_last_signal_restarts_reception,
     scenario_discarding_first_signal_restarts_reception,
     scenario_full_lifecycle,
+    scenario_sram_diagnostic_survives_power_cycle,
+    scenario_normal_boot_skips_diagnostic,
 ]
 
 

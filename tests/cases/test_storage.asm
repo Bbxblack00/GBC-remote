@@ -37,6 +37,44 @@ Test_MountFormatsBlankStorage::
     ExpectZero
     TestPassed
 
+Test_MountDetectsCorruptedDirectory::
+    call Test_ResetWorld
+    xor a
+    call StorageTest_CommitInSlot
+    ExpectEqual ERROR_NONE
+    call Sram_Enable
+    ld a, DIRECTORY_BANK
+    call Sram_SelectBank
+    ld a, GLYPH_UNDERSCORE
+    ld [SRAM_BASE_ADDRESS + DIRECTORY_SIGNATURE_LENGTH + 1], a
+    call Sram_Disable
+    call Test_ForgetMirror
+    call Storage_Mount
+    ExpectEqual ERROR_DIRECTORY_CORRUPT
+    call Storage_RebuildIndex
+    ld a, [wUsedSlotCount]
+    ExpectZero
+    call Test_ForgetMirror
+    call Storage_Mount
+    ExpectEqual ERROR_NONE
+    TestPassed
+
+Test_MountRepairsEmptyCorruptedDirectorySilently::
+    call Test_ResetWorld
+    call Sram_Enable
+    ld a, DIRECTORY_BANK
+    call Sram_SelectBank
+    ld a, GLYPH_UNDERSCORE
+    ld [SRAM_BASE_ADDRESS + DIRECTORY_SIZE_BYTES - 1], a
+    call Sram_Disable
+    call Test_ForgetMirror
+    call Storage_Mount
+    ExpectEqual ERROR_NONE
+    call Test_ForgetMirror
+    call Storage_Mount
+    ExpectEqual ERROR_NONE
+    TestPassed
+
 Test_CommitPersistsAcrossReboot::
     call Test_ResetWorld
     xor a

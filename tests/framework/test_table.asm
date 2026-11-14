@@ -24,6 +24,8 @@ TestTable::
     RegisterTest Test_KeyboardGlyphLookup
 
     RegisterTest Test_MountFormatsBlankStorage
+    RegisterTest Test_MountDetectsCorruptedDirectory
+    RegisterTest Test_MountRepairsEmptyCorruptedDirectorySilently
     RegisterTest Test_CommitPersistsAcrossReboot
     RegisterTest Test_DuplicateNameIsRejected
     RegisterTest Test_BlankNameIsRejected

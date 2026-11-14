@@ -3,6 +3,7 @@ INCLUDE "common.inc"
 SECTION "StorageState", WRAM0
 wDirectory:: ds DIRECTORY_SIGNATURE_LENGTH
 wDirectoryEntries:: ds DIRECTORY_ENTRIES_BYTES
+wDirectoryChecksum:: ds DIRECTORY_CHECKSUM_LENGTH
 wTargetSlot:: ds 1
 wUsedSlotCount:: ds 1
 wUsedSlotIndexes:: ds SLOT_COUNT
@@ -13,9 +14,64 @@ Storage_Mount::
     call Storage_LoadDirectory
     call Storage_CompareDirectorySignature
     and a
+    jr nz, .formatFirstLaunch
+    call Storage_VerifyDirectoryChecksum
+    and a
     ret z
+    call Storage_HasUsedEntry
+    push af
+    call Storage_FormatMirror
+    call Storage_FlushDirectory
+    and a
+    jr nz, .reformatFailed
+    pop af
+    and a
+    ret z
+    Throw ERROR_DIRECTORY_CORRUPT
+.reformatFailed
+    pop bc
+    ret
+.formatFirstLaunch
     call Storage_FormatMirror
     jp Storage_FlushDirectory
+
+Storage_HasUsedEntry::
+    ld c, 0
+.inspectSlot
+    ld a, c
+    call Storage_GetEntryAddress
+    ld a, [hl]
+    cp ENTRY_STATUS_USED
+    jr z, .usedEntryFound
+    inc c
+    ld a, c
+    cp SLOT_COUNT
+    jr nz, .inspectSlot
+    ld a, NO_USED_ENTRIES
+    ret
+.usedEntryFound
+    ld a, HAS_USED_ENTRIES
+    ret
+
+Storage_ComputeDirectoryChecksum::
+    ld hl, wDirectory
+    ld b, DIRECTORY_CHECKSUMMED_BYTES
+    ld a, DIRECTORY_CHECKSUM_SEED
+.accumulateByte
+    add [hl]
+    inc hl
+    dec b
+    jr nz, .accumulateByte
+    ret
+
+Storage_VerifyDirectoryChecksum::
+    call Storage_ComputeDirectoryChecksum
+    ld hl, wDirectoryChecksum
+    cp [hl]
+    jr z, .checksumMatches
+    Throw ERROR_DIRECTORY_CORRUPT
+.checksumMatches
+    Succeed
 
 Storage_LoadDirectory::
     call Sram_Enable
@@ -44,6 +100,8 @@ Storage_FormatMirror::
     jp Memory_CopyBytes
 
 Storage_FlushDirectory::
+    call Storage_ComputeDirectoryChecksum
+    ld [wDirectoryChecksum], a
     call Sram_Enable
     ld a, DIRECTORY_BANK
     call Sram_SelectBank

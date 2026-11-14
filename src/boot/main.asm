@@ -10,4 +10,8 @@ Main::
     ld sp, wStackTop
     call Clock_ApplySelectedSpeed
     call Lcd_Initialise
+    call Joypad_Read
+    ld a, [wJoypadHeld]
+    bit JOYPAD_BIT_SELECT, a
+    call nz, SramDiagnostic_Run
     jp Application_Run

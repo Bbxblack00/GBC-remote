@@ -24,6 +24,9 @@ TEST_ROM = $(BUILD_DIR)/gbc-remote-tests.gbc
 TEST_SYMBOLS = $(BUILD_DIR)/gbc-remote-tests.sym
 
 ASFLAGS = -I inc/ -I tests/inc/ -Weverything
+ifdef CPU_SPEED
+ASFLAGS += -D SELECTED_CPU_SPEED=$(CPU_SPEED)
+endif
 FIXFLAGS = -v -p 0 -C -m $(CARTRIDGE_TYPE_MBC5_RAM_BATTERY) -r $(SRAM_SIZE_CODE_128_KB) -t $(NAME)
 
 $(ROM): $(APPLICATION_OBJECTS)

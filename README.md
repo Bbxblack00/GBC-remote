@@ -54,6 +54,7 @@ Gli errori mostrano `ERROR E0n` (a schermo e, per i nomi, sotto il campo del nom
 | E05 | Nome già in uso | Esiste già un comando con quel nome. | Scegli un nome diverso. |
 | E06 | Segnale danneggiato | Il campione salvato non ha la firma di integrità. | Elimina il comando e registralo di nuovo. |
 | E07 | Slot non valido | Errore interno: indice di slot fuori intervallo. | Riavvia. Se si ripete, segnala il problema. |
+| E08 | Directory danneggiata | La firma c'è, ma il checksum della directory non torna: la SRAM è tornata diversa da come era stata scritta. Il programma la riformatta. L'errore compare solo se la directory danneggiata conteneva comandi (che vanno persi): se era vuota, la riparazione è silenziosa. | Esegui la diagnostica SRAM (sezione sotto) per capire se la flashcart conserva i dati. |
 
 L'annullamento con B non è un errore e non mostra nessun codice.
 
@@ -135,9 +136,35 @@ Dal secondo avvio in poi parti direttamente dalla lista.
 - **Schermo nero o la flashcart non lo carica:** controlla che sia un Game Boy Color, non un DMG o un GBA.
 - **`ERROR E01` al primo avvio:** la flashcart non offre SRAM. Imposta MBC5 e SRAM 128 KB.
 - **`ERROR E03` a ogni registrazione:** segnale troppo corto. Avvicina il telecomando, evita sole e lampade a incandescenza.
+- **Dopo il riavvio i nomi hanno caratteri sbagliati o compare E08:** la SRAM non è tornata uguale. Esegui la diagnostica SRAM (sezione sotto) e confronta il risultato con la tabella.
 - **I comandi spariscono al riavvio:** il programma scrive i comandi nella SRAM della cartuccia (la ROM è di sola lettura e non si può usare). Se dopo lo spegnimento non ci sono più, la flashcart non ha scritto la SRAM sulla microSD. Controlla il punto 4 e il manuale: alcune flashcart salvano solo con un comando dedicato o tornando al menu.
 - **Il segnale registrato non fa nulla quando lo invii:** usa la velocità `CPU_SPEED_DOUBLE` (default). A velocità normale il campionamento è troppo lento per la portante a 38 kHz. Registra con il telecomando vicino al sensore e riprova. Vedi anche i limiti noti.
 - Gli altri codici sono nella tabella Errori.
+
+### Variante a velocità normale (prova)
+
+Per capire se la SRAM della flashcart non regge il double speed, compila una variante a velocità normale. L'IR campiona male a questa velocità, quindi serve solo per la prova:
+
+```
+make BUILD_DIR=build/normal-speed CPU_SPEED=0
+```
+
+Il ROM è in `build/normal-speed/gbc-remote.gbc`. Se con questo ROM l'E08 o i nomi sbagliati spariscono, il problema è il double speed.
+
+### Diagnostica SRAM
+
+Serve a capire se la flashcart conserva la SRAM tra uno spegnimento e l'altro. **Cancella tutti i comandi salvati.**
+
+1. Tieni premuto **SELECT** mentre avvii il ROM, finché compare `SRAM TEST`.
+2. Premi **A**: il programma scrive un pattern diverso in ciascuna delle 9 banche e lo rilegge subito. Vedi `BANK 00 OK` ... `BANK 08 OK`.
+3. Spegni la console e riaccendila, tenendo premuto SELECT. Premi **START** per verificare lo stesso pattern.
+4. Premi **B** per uscire. Il programma riparte da zero.
+
+| Risultato | Significato |
+|---|---|
+| Tutte OK al punto 2 e al punto 3 | La SRAM funziona e viene conservata. Il problema è altrove: segnalami i dettagli. |
+| BAD già al punto 2 su alcune banche | La flashcart ha meno di 128 KB di SRAM: le banche si sovrappongono. Riduci `SLOT_COUNT` e l'header (`-r`) alla SRAM disponibile. |
+| OK al punto 2, BAD al punto 3 | La flashcart non conserva (o non ripristina) la SRAM tra gli avvii. Controlla il manuale: salvataggio su microSD, momento in cui viene scritto. |
 
 ### Salvataggi
 
@@ -153,8 +180,8 @@ make test
 
 La suite ha due livelli, entrambi headless su emulatore PyBoy:
 
-- **Unit test** (`tests/cases/`, 29 test): ROM di test con le routine reali. Coprono gestione errori, buffer del nome, cursore della tastiera, directory e SRAM, validazione del segnale. Il runner (`tests/run_tests.py`) legge i risultati dalla WRAM tramite il file `.sym`. Un test mai eseguito conta come fallito.
-- **Test di flusso** (`tests/run_flow_tests.py`, 6 scenari): avviano il ROM vero, premono i tasti e leggono lo schermo. Simulano il sensore IR con hook sui loop di cattura (`tests/flow_harness.py`). Verificano primo avvio, ripartenza della ricezione senza comandi (annullamento, scarto, eliminazione dell'ultimo), errore E03, nome duplicato (E05), nome di soli spazi (E04), conferma di annullamento con nome vuoto (sì e no), conferma di eliminazione (sì e no), persistenza dopo riavvio, e che il segnale riprodotto sia uguale a quello registrato.
+- **Unit test** (`tests/cases/`, 31 test): ROM di test con le routine reali. Coprono gestione errori, buffer del nome, cursore della tastiera, directory e SRAM, validazione del segnale. Il runner (`tests/run_tests.py`) legge i risultati dalla WRAM tramite il file `.sym`. Un test mai eseguito conta come fallito.
+- **Test di flusso** (`tests/run_flow_tests.py`, 8 scenari): avviano il ROM vero, premono i tasti e leggono lo schermo. Simulano il sensore IR con hook sui loop di cattura (`tests/flow_harness.py`). Verificano primo avvio, ripartenza della ricezione senza comandi (annullamento, scarto, eliminazione dell'ultimo), errore E03, nome duplicato (E05), nome di soli spazi (E04), conferma di annullamento con nome vuoto (sì e no), conferma di eliminazione (sì e no), persistenza dopo riavvio, che il segnale riprodotto sia uguale a quello registrato, e la diagnostica SRAM con spegnimento e riaccensione.
 
 ## Configurazione
 
@@ -165,7 +192,7 @@ La suite ha due livelli, entrambi headless su emulatore PyBoy:
 
 SRAM, 16 banche da 8 KB (header `rgbfix -r 0x04`):
 
-- Banca 0: directory. Firma `GBCR` e 8 voci da 9 byte (stato `$A5` = usata, poi 8 glifi di nome). Se la firma manca, la directory viene formattata. Questo è il "primo avvio".
+- Banca 0: directory. Firma `GBCR`, 8 voci da 9 byte (stato `$A5` = usata, poi 8 glifi di nome) e un byte di checksum, 77 byte in tutto. Se la firma manca, la directory viene formattata: questo è il "primo avvio". Se la firma c'è ma il checksum non torna, la directory viene riformattata e appare E08.
 - Banche 1-8: un campione IR per slot. I campioni sono impacchettati a 8 per byte (un bit per campione, 1 = LED acceso), 4096 byte per slot. L'ultimo byte della banca (`$BFFF`) è la firma `$5A`.
 
 La registrazione scrive direttamente nella banca dello slot libero. Lo slot diventa "usato" solo quando il nome è confermato, quindi un nome annullato non lascia residui.
@@ -193,4 +220,4 @@ tests/          framework asm, casi, runner Python, harness di flusso
 
 ## Stato
 
-Verificato su hardware reale solo in parte: la registrazione e il nome funzionano, la riproduzione e la persistenza dopo il riavvio no (segnalato da una prova su console). Le prove su emulatore passano: 29 unit test e 6 scenari di flusso.
+Verificato su hardware reale solo in parte: la registrazione e il nome funzionano, la riproduzione funziona. Dopo il riavvio la lista torna, ma i nomi risultano sbagliati: causa non ancora accertata (vedi la diagnostica SRAM). Le prove su emulatore passano: 31 unit test e 8 scenari di flusso.

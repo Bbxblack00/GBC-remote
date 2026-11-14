@@ -43,6 +43,31 @@ StringLegendDiscardFirst::
 StringLegendDiscardSecond::
     db "B=NO: KEEP EDITING", STRING_END
 
+StringDiagnosticTitle::
+    db "SRAM TEST", STRING_END
+StringDiagnosticWrite::
+    db "A=WRITE PATTERN", STRING_END
+StringDiagnosticCycle::
+    db "THEN POWER CYCLE", STRING_END
+StringDiagnosticHold::
+    db "HOLD SELECT AT BOOT", STRING_END
+StringDiagnosticVerify::
+    db "START=VERIFY", STRING_END
+StringDiagnosticExit::
+    db "B=EXIT", STRING_END
+StringDiagnosticWarning::
+    db "WRITE ERASES SAVES", STRING_END
+StringDiagnosticBank::
+    db "BANK ", STRING_END
+StringDiagnosticOk::
+    db "OK", STRING_END
+StringDiagnosticBad::
+    db "BAD", STRING_END
+StringDiagnosticAllOk::
+    db "ALL BANKS OK", STRING_END
+StringDiagnosticSomeBad::
+    db "SOME BANKS BAD", STRING_END
+
 StringErrorPrefix::
     db "ERROR E", STRING_END
 StringErrorHint::
