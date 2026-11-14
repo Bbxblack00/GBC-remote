@@ -223,3 +223,39 @@ Test_SampleSignatureDetectsDamage::
     call Storage_VerifySampleSignature
     ExpectEqual ERROR_SIGNAL_DAMAGED
     TestPassed
+
+Test_SampleRoundTripsThroughSram::
+    call Test_ResetWorld
+    xor a
+    ld [wTargetSlot], a
+    ld a, TEST_SAMPLE_FILL_BYTE
+    call Test_FillSampleBuffer
+    ld a, TEST_SAMPLE_FIRST_BYTE
+    ld [wSampleBuffer], a
+    ld a, TEST_SAMPLE_LAST_BYTE
+    ld [wSampleBuffer + SAMPLE_BUFFER_SIZE_BYTES - 1], a
+    call Storage_SaveSampleFromBuffer
+    ExpectEqual ERROR_NONE
+    ld a, TEST_BLANK_SRAM_BYTE
+    call Test_FillSampleBuffer
+    call Storage_LoadSampleToBuffer
+    ExpectEqual ERROR_NONE
+    ld a, [wSampleBuffer]
+    ExpectEqual TEST_SAMPLE_FIRST_BYTE
+    ld a, [wSampleBuffer + SAMPLE_BUFFER_SIZE_BYTES / 2]
+    ExpectEqual TEST_SAMPLE_FILL_BYTE
+    ld a, [wSampleBuffer + SAMPLE_BUFFER_SIZE_BYTES - 1]
+    ExpectEqual TEST_SAMPLE_LAST_BYTE
+    TestPassed
+
+Test_LoadReportsDamagedSample::
+    call Test_ResetWorld
+    xor a
+    ld [wTargetSlot], a
+    call Storage_SelectSampleBank
+    ld a, TEST_BLANK_SRAM_BYTE
+    ld [SAMPLE_SIGNATURE_ADDRESS], a
+    call Sram_Disable
+    call Storage_LoadSampleToBuffer
+    ExpectEqual ERROR_SIGNAL_DAMAGED
+    TestPassed

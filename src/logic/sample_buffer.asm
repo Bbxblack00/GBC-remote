@@ -1,0 +1,4 @@
+INCLUDE "common.inc"
+
+SECTION "SampleBuffer", WRAMX[SAMPLE_BUFFER_ADDRESS]
+wSampleBuffer:: ds SAMPLE_BUFFER_SIZE_BYTES

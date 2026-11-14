@@ -222,6 +222,37 @@ Storage_SelectSampleBank::
     ld a, b
     jp Sram_SelectBank
 
+Storage_SaveSampleFromBuffer::
+    ld a, [wTargetSlot]
+    call Storage_SelectSampleBank
+    ld hl, SRAM_BASE_ADDRESS
+    ld de, wSampleBuffer
+    ld bc, SAMPLE_BUFFER_SIZE_BYTES
+    call Memory_CopyBytes
+    ld a, SAMPLE_BANK_SIGNATURE
+    ld [SAMPLE_SIGNATURE_ADDRESS], a
+    ld hl, SRAM_BASE_ADDRESS
+    ld de, wSampleBuffer
+    ld bc, SAMPLE_BUFFER_SIZE_BYTES
+    call Memory_CompareBlock
+    ld b, a
+    call Sram_Disable
+    ld a, b
+    and a
+    ret z
+    Throw ERROR_STORAGE_VERIFY_FAILED
+
+Storage_LoadSampleToBuffer::
+    Try Storage_VerifySampleSignature
+    ld a, [wTargetSlot]
+    call Storage_SelectSampleBank
+    ld hl, wSampleBuffer
+    ld de, SRAM_BASE_ADDRESS
+    ld bc, SAMPLE_BUFFER_SIZE_BYTES
+    call Memory_CopyBytes
+    call Sram_Disable
+    Succeed
+
 Storage_VerifySampleSignature::
     ld a, [wTargetSlot]
     call Storage_SelectSampleBank

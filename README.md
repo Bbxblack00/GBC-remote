@@ -141,15 +141,11 @@ Dal secondo avvio in poi parti direttamente dalla lista.
 - **Il segnale registrato non fa nulla quando lo invii:** usa la velocità `CPU_SPEED_DOUBLE` (default). A velocità normale il campionamento è troppo lento per la portante a 38 kHz. Registra con il telecomando vicino al sensore e riprova. Vedi anche i limiti noti.
 - Gli altri codici sono nella tabella Errori.
 
-### Variante a velocità normale (prova)
+### Velocità e SRAM
 
-Per capire se la SRAM della flashcart non regge il double speed, compila una variante a velocità normale. L'IR campiona male a questa velocità, quindi serve solo per la prova:
+La console gira a **velocità normale**. Directory, salvataggio, lettura e verifica della SRAM avvengono solo a velocità normale, perché alcune flashcart non reggono gli accessi alla SRAM in double speed. Il double speed si usa solo durante la cattura e l'invio dell'IR, che hanno bisogno del campionamento a 3,3 µs. Il segnale viene catturato in un buffer in WRAM e copiato in SRAM dopo il ritorno a velocità normale.
 
-```
-make BUILD_DIR=build/normal-speed CPU_SPEED=0
-```
-
-Il ROM è in `build/normal-speed/gbc-remote.gbc`. Se con questo ROM l'E08 o i nomi sbagliati spariscono, il problema è il double speed.
+Per provare tutto a velocità normale (l'IR campiona male, serve solo per prova): `make BUILD_DIR=build/normal-speed CPU_SPEED=0`.
 
 ### Diagnostica SRAM
 
@@ -180,12 +176,12 @@ make test
 
 La suite ha due livelli, entrambi headless su emulatore PyBoy:
 
-- **Unit test** (`tests/cases/`, 31 test): ROM di test con le routine reali. Coprono gestione errori, buffer del nome, cursore della tastiera, directory e SRAM, validazione del segnale. Il runner (`tests/run_tests.py`) legge i risultati dalla WRAM tramite il file `.sym`. Un test mai eseguito conta come fallito.
+- **Unit test** (`tests/cases/`, 33 test): ROM di test con le routine reali. Coprono gestione errori, buffer del nome, cursore della tastiera, directory e SRAM, validazione del segnale. Il runner (`tests/run_tests.py`) legge i risultati dalla WRAM tramite il file `.sym`. Un test mai eseguito conta come fallito.
 - **Test di flusso** (`tests/run_flow_tests.py`, 8 scenari): avviano il ROM vero, premono i tasti e leggono lo schermo. Simulano il sensore IR con hook sui loop di cattura (`tests/flow_harness.py`). Verificano primo avvio, ripartenza della ricezione senza comandi (annullamento, scarto, eliminazione dell'ultimo), errore E03, nome duplicato (E05), nome di soli spazi (E04), conferma di annullamento con nome vuoto (sì e no), conferma di eliminazione (sì e no), persistenza dopo riavvio, che il segnale riprodotto sia uguale a quello registrato, e la diagnostica SRAM con spegnimento e riaccensione.
 
 ## Configurazione
 
-- Velocità CPU: `SELECTED_CPU_SPEED` in `inc/application_config.inc`. Valori `CPU_SPEED_NORMAL` (4,19 MHz) o `CPU_SPEED_DOUBLE` (8,39 MHz). Il Game Boy Color offre solo queste due velocità: l'overclock oltre il double speed richiede una modifica hardware.
+- Velocità dell'IR: `SELECTED_CPU_SPEED` in `inc/application_config.inc`. Valori `CPU_SPEED_NORMAL` (4,19 MHz) o `CPU_SPEED_DOUBLE` (8,39 MHz). Vale solo per cattura e invio dell'IR: tutto il resto gira a velocità normale. Il Game Boy Color offre solo queste due velocità: l'overclock oltre il double speed richiede una modifica hardware.
 - Numero di slot: `SLOT_COUNT` (default 8). Le banche SRAM usate sono `SLOT_COUNT + 1`.
 
 ## Come è salvato
@@ -200,7 +196,7 @@ La registrazione scrive direttamente nella banca dello slot libero. Lo slot dive
 ## Limiti noti
 
 - **Mai provato su hardware reale.** IR, temporizzazione e double speed sono verificati solo su emulatore. Su PyBoy il sensore è simulato con hook, non emulato.
-- Un campione ogni 7 cicli macchina: circa 3,3 µs in double speed, circa 6,7 µs a velocità normale. Una registrazione dura circa 127 ms in double speed (254 ms a velocità normale) e copre un frame NEC completo (circa 67 ms). Resta in double speed: a velocità normale il campionamento è troppo grossolano per una portante a 38 kHz (mezzo periodo circa 13 µs).
+- Un campione ogni 7 cicli macchina: circa 3,3 µs in double speed, circa 6,7 µs a velocità normale. Una registrazione dura circa 127 ms in double speed (254 ms a velocità normale) e copre un frame NEC completo (circa 67 ms). Per l'IR resta il double speed: a velocità normale il campionamento è troppo grossolano per una portante a 38 kHz (mezzo periodo circa 13 µs).
 - Una versione precedente campionava un byte per campione, per circa 35 ms in double speed. Era meno della durata di un comando NEC e la riproduzione poteva non essere riconosciuta. Se anche ora la riproduzione non funziona, la causa va cercata nell'hardware (LED troppo debole, distanza, temporizzazione) e serve una misura con un analizzatore logico.
 - La frequenza della portante non è misurata: i campioni contengono già gli impulsi modulati e il replay li riproduce così come sono. Con 3,3 µs di risoluzione ogni fronte della portante può spostarsi di circa 3 µs su 13 µs di mezzo periodo: un ricevitore poco tollerante può non riconoscere il segnale.
 
@@ -220,4 +216,4 @@ tests/          framework asm, casi, runner Python, harness di flusso
 
 ## Stato
 
-Verificato su hardware reale solo in parte: la registrazione e il nome funzionano, la riproduzione funziona. Dopo il riavvio la lista torna, ma i nomi risultano sbagliati: causa non ancora accertata (vedi la diagnostica SRAM). Le prove su emulatore passano: 31 unit test e 8 scenari di flusso.
+Verificato su hardware reale solo in parte: la registrazione e il nome funzionano, la riproduzione funziona. Dopo il riavvio la lista torna, ma i nomi risultano sbagliati: causa non ancora accertata (vedi la diagnostica SRAM). Le prove su emulatore passano: 33 unit test e 8 scenari di flusso.

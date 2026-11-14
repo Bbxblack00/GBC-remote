@@ -36,6 +36,8 @@ TestTable::
     RegisterTest Test_InvalidSlotIsRejected
     RegisterTest Test_IndexListsUsedSlotsInOrder
     RegisterTest Test_SampleSignatureDetectsDamage
+    RegisterTest Test_SampleRoundTripsThroughSram
+    RegisterTest Test_LoadReportsDamagedSample
 
     RegisterTest Test_QuietCaptureIsTooShort
     RegisterTest Test_ActiveCaptureIsAccepted

@@ -70,11 +70,7 @@ Test_ForgetMirror::
     ld a, TEST_BLANK_SRAM_BYTE
     jp Memory_FillBytes
 
-Test_FillSampleBank::
-    push af
-    xor a
-    call Storage_SelectSampleBank
-    pop af
-    ld hl, SRAM_BASE_ADDRESS
-    ld bc, SRAM_BANK_SIZE_BYTES
+Test_FillSampleBuffer::
+    ld hl, wSampleBuffer
+    ld bc, SAMPLE_BUFFER_SIZE_BYTES
     jp Memory_FillBytes

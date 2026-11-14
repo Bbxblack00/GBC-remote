@@ -2,13 +2,20 @@ INCLUDE "common.inc"
 
 SECTION "Clock", ROM0
 
-Clock_ApplySelectedSpeed::
+Clock_EnterNormalSpeed::
     ldh a, [rKEY1]
     and KEY1_DOUBLE_SPEED_ACTIVE
-IF SELECTED_CPU_SPEED == CPU_SPEED_DOUBLE
-    ret nz
-ELSE
     ret z
+    jr Clock_ToggleSpeed
+
+Clock_EnterSignalSpeed::
+IF SELECTED_CPU_SPEED == CPU_SPEED_DOUBLE
+    ldh a, [rKEY1]
+    and KEY1_DOUBLE_SPEED_ACTIVE
+    ret nz
+    jr Clock_ToggleSpeed
+ELSE
+    jr Clock_EnterNormalSpeed
 ENDC
 
 Clock_ToggleSpeed::

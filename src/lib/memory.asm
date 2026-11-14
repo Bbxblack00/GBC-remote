@@ -22,6 +22,20 @@ Memory_CopyBytes::
     jr nz, .copyByte
     ret
 
+Memory_CompareBlock::
+.compareBlockByte
+    ld a, [de]
+    sub [hl]
+    ret nz
+    inc hl
+    inc de
+    dec bc
+    ld a, b
+    or c
+    jr nz, .compareBlockByte
+    xor a
+    ret
+
 Memory_CompareBytes::
 .compareByte
     ld a, [de]

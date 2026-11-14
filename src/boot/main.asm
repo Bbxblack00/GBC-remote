@@ -8,7 +8,7 @@ SECTION "Main", ROM0
 Main::
     di
     ld sp, wStackTop
-    call Clock_ApplySelectedSpeed
+    call Clock_EnterNormalSpeed
     call Lcd_Initialise
     call Joypad_Read
     ld a, [wJoypadHeld]

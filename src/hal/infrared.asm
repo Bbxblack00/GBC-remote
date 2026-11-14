@@ -48,10 +48,10 @@ Infrared_IsSignalDetected::
     and RP_SENSOR_DATA_BIT_MASK
     ret
 
-Infrared_CaptureSamplesToSram::
-    ld hl, SRAM_BASE_ADDRESS
+Infrared_CaptureSamplesToBuffer::
+    ld hl, wSampleBuffer
     ld c, LOW(rRP)
-    ld e, SAMPLE_REGION_END_HIGH_BYTE
+    ld e, SAMPLE_BUFFER_END_HIGH_BYTE
 .captureByte
     FOR bitIndex, SAMPLES_PER_BYTE
         CaptureSampleBit {d:bitIndex}
@@ -64,10 +64,10 @@ Infrared_CaptureSamplesToSram::
     jr nz, .captureByte
     ret
 
-Infrared_ReplaySamplesFromSram::
-    ld hl, SRAM_BASE_ADDRESS
+Infrared_ReplaySamplesFromBuffer::
+    ld hl, wSampleBuffer
     ld c, LOW(rRP)
-    ld e, SAMPLE_REGION_END_HIGH_BYTE
+    ld e, SAMPLE_BUFFER_END_HIGH_BYTE
 .replayByte
     ld a, [hli]
     ld b, a
@@ -81,7 +81,7 @@ Infrared_ReplaySamplesFromSram::
     ret
 
 Infrared_ValidateCapturedActivity::
-    ld hl, SRAM_BASE_ADDRESS
+    ld hl, wSampleBuffer
     ld a, [hli]
     ld d, a
     ld c, 0
@@ -96,7 +96,7 @@ Infrared_ValidateCapturedActivity::
     jr z, .activityConfirmed
 .byteUnchanged
     ld a, h
-    cp SAMPLE_REGION_END_HIGH_BYTE
+    cp SAMPLE_BUFFER_END_HIGH_BYTE
     jr nz, .inspectByte
     Throw ERROR_SIGNAL_TOO_SHORT
 .activityConfirmed
