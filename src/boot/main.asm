@@ -10,6 +10,9 @@ Main::
     ld sp, wStackTop
     call Clock_EnterNormalSpeed
     call Lcd_Initialise
+    call SramProbe_Run
+    call EventLog_Initialise
+    call EventLog_RecordBootFacts
     call Joypad_Read
     ld a, [wJoypadHeld]
     bit JOYPAD_BIT_SELECT, a

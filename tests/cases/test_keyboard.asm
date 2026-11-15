@@ -55,16 +55,25 @@ Test_KeyboardUpKeepsColumn::
 Test_KeyboardGlyphLookup::
     SetKeyboardCursor 0
     call Keyboard_GetCursorGlyph
-    ExpectEqual GLYPH_LETTER_A
-    SetKeyboardCursor 25
-    call Keyboard_GetCursorGlyph
-    ExpectEqual GLYPH_LETTER_A + 25
-    SetKeyboardCursor 26
+    ExpectEqual GLYPH_DIGIT_0 + 1
+    SetKeyboardCursor 9
     call Keyboard_GetCursorGlyph
     ExpectEqual GLYPH_DIGIT_0
-    SetKeyboardCursor 35
+    SetKeyboardCursor 10
     call Keyboard_GetCursorGlyph
-    ExpectEqual GLYPH_DIGIT_0 + 9
+    ExpectEqual GLYPH_LETTER_A + 16
+    SetKeyboardCursor 20
+    call Keyboard_GetCursorGlyph
+    ExpectEqual GLYPH_LETTER_A
+    SetKeyboardCursor 29
+    call Keyboard_GetCursorGlyph
+    ExpectEqual GLYPH_DASH
+    SetKeyboardCursor 30
+    call Keyboard_GetCursorGlyph
+    ExpectEqual GLYPH_LETTER_A + 25
+    SetKeyboardCursor 37
+    call Keyboard_GetCursorGlyph
+    ExpectEqual GLYPH_DOT
     SetKeyboardCursor KEYBOARD_KEY_COUNT - 1
     call Keyboard_GetCursorGlyph
     ExpectEqual GLYPH_SPACE

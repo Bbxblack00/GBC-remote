@@ -2,22 +2,50 @@ INCLUDE "common.inc"
 
 SECTION "StorageState", WRAM0
 wDirectory:: ds DIRECTORY_SIGNATURE_LENGTH
-wDirectoryEntries:: ds DIRECTORY_ENTRIES_BYTES
+wDirectoryCards:: ds DIRECTORY_CARDS_BYTES
+wDirectorySignals:: ds DIRECTORY_SIGNALS_BYTES
 wDirectoryChecksum:: ds DIRECTORY_CHECKSUM_LENGTH
 wTargetSlot:: ds 1
-wUsedSlotCount:: ds 1
-wUsedSlotIndexes:: ds SLOT_COUNT
+wTargetCard:: ds 1
+wSelectedCard:: ds 1
+wUsedCardCount:: ds 1
+wUsedCardIndexes:: ds CARD_COUNT_MAX
+wCardSignalCount:: ds 1
+wCardSignalIndexes:: ds SIGNALS_PER_CARD_MAX
+wPendingCardName:: ds NAME_LENGTH
+wDirectoryPrimaryClass:: ds 1
+wDirectoryBackupClass:: ds 1
 
 SECTION "Storage", ROM0
 
 Storage_Mount::
-    call Storage_LoadDirectory
-    call Storage_CompareDirectorySignature
-    and a
-    jr nz, .formatFirstLaunch
-    call Storage_VerifyDirectoryChecksum
+    ld a, DIRECTORY_NOT_CHECKED
+    ld [wDirectoryBackupClass], a
+    ld hl, SRAM_BASE_ADDRESS
+    call Storage_LoadDirectoryAt
+    call Storage_ClassifyMirror
+    ld [wDirectoryPrimaryClass], a
     and a
     ret z
+    ld hl, SRAM_BASE_ADDRESS + DIRECTORY_BACKUP_OFFSET
+    call Storage_LoadDirectoryAt
+    call Storage_ClassifyMirror
+    ld [wDirectoryBackupClass], a
+    and a
+    jr nz, .bothCopiesUnusable
+    jp Storage_FlushDirectory
+.bothCopiesUnusable
+    ld a, [wDirectoryPrimaryClass]
+    cp DIRECTORY_DAMAGED
+    jr nz, .primaryNotDamaged
+    ld hl, SRAM_BASE_ADDRESS
+    call Storage_LoadDirectoryAt
+    jr .examineDamagedDirectory
+.primaryNotDamaged
+    ld a, [wDirectoryBackupClass]
+    cp DIRECTORY_DAMAGED
+    jr nz, .formatFirstLaunch
+.examineDamagedDirectory
     call Storage_HasUsedEntry
     push af
     call Storage_FormatMirror
@@ -35,18 +63,31 @@ Storage_Mount::
     call Storage_FormatMirror
     jp Storage_FlushDirectory
 
+Storage_ClassifyMirror::
+    call Storage_CompareDirectorySignature
+    and a
+    jr z, .signatureMatches
+    ld a, DIRECTORY_UNFORMATTED
+    ret
+.signatureMatches
+    call Storage_VerifyDirectoryChecksum
+    and a
+    ret z
+    ld a, DIRECTORY_DAMAGED
+    ret
+
 Storage_HasUsedEntry::
     ld c, 0
-.inspectSlot
+.inspectCard
     ld a, c
-    call Storage_GetEntryAddress
+    call Storage_GetCardEntryAddress
     ld a, [hl]
     cp ENTRY_STATUS_USED
     jr z, .usedEntryFound
     inc c
     ld a, c
-    cp SLOT_COUNT
-    jr nz, .inspectSlot
+    cp CARD_COUNT_MAX
+    jr nz, .inspectCard
     ld a, NO_USED_ENTRIES
     ret
 .usedEntryFound
@@ -55,12 +96,16 @@ Storage_HasUsedEntry::
 
 Storage_ComputeDirectoryChecksum::
     ld hl, wDirectory
-    ld b, DIRECTORY_CHECKSUMMED_BYTES
+    ld bc, DIRECTORY_CHECKSUMMED_BYTES
     ld a, DIRECTORY_CHECKSUM_SEED
 .accumulateByte
     add [hl]
     inc hl
-    dec b
+    dec bc
+    ld d, a
+    ld a, b
+    or c
+    ld a, d
     jr nz, .accumulateByte
     ret
 
@@ -73,12 +118,13 @@ Storage_VerifyDirectoryChecksum::
 .checksumMatches
     Succeed
 
-Storage_LoadDirectory::
+Storage_LoadDirectoryAt::
+    push hl
     call Sram_Enable
     ld a, DIRECTORY_BANK
     call Sram_SelectBank
+    pop de
     ld hl, wDirectory
-    ld de, SRAM_BASE_ADDRESS
     ld bc, DIRECTORY_SIZE_BYTES
     call Memory_CopyBytes
     jp Sram_Disable
@@ -106,25 +152,53 @@ Storage_FlushDirectory::
     ld a, DIRECTORY_BANK
     call Sram_SelectBank
     ld hl, SRAM_BASE_ADDRESS
-    ld de, wDirectory
-    ld bc, DIRECTORY_SIZE_BYTES
-    call Memory_CopyBytes
-    ld hl, SRAM_BASE_ADDRESS
-    ld de, wDirectory
-    ld b, DIRECTORY_SIZE_BYTES
-    call Memory_CompareBytes
+    call Storage_WriteAndVerifyDirectoryCopy
     ld b, a
+    and a
+    jr nz, .copiesWritten
+    ld hl, SRAM_BASE_ADDRESS + DIRECTORY_BACKUP_OFFSET
+    call Storage_WriteAndVerifyDirectoryCopy
+    ld b, a
+.copiesWritten
     call Sram_Disable
     ld a, b
     and a
     ret z
-    Throw ERROR_STORAGE_VERIFY_FAILED
+    Throw ERROR_DIRECTORY_VERIFY_FAILED
 
-Storage_GetEntryAddress::
-    ld hl, wDirectoryEntries
+Storage_WriteAndVerifyDirectoryCopy:
+    push hl
+    ld de, wDirectory
+    ld bc, DIRECTORY_SIZE_BYTES
+    call Memory_CopyBytes
+    pop hl
+    ld de, wDirectory
+    ld bc, DIRECTORY_SIZE_BYTES
+    jp Memory_CompareBlock
+
+Storage_GetCardEntryAddress::
+    push bc
+    push de
+    ld hl, wDirectoryCards
+    ld de, CARD_ENTRY_SIZE_BYTES
+    call Storage_AdvanceEntryAddress
+    pop de
+    pop bc
+    ret
+
+Storage_GetSignalEntryAddress::
+    push bc
+    push de
+    ld hl, wDirectorySignals
+    ld de, SIGNAL_ENTRY_SIZE_BYTES
+    call Storage_AdvanceEntryAddress
+    pop de
+    pop bc
+    ret
+
+Storage_AdvanceEntryAddress:
     and a
     ret z
-    ld de, DIRECTORY_ENTRY_SIZE_BYTES
     ld b, a
 .advanceToNextEntry
     add hl, de
@@ -132,65 +206,22 @@ Storage_GetEntryAddress::
     jr nz, .advanceToNextEntry
     ret
 
-Storage_ClearEntry::
-    call Storage_GetEntryAddress
+Storage_ClearCardEntry::
+    call Storage_GetCardEntryAddress
     ld a, ENTRY_STATUS_FREE
     ld [hl], a
     ret
 
-Storage_FindFreeSlot::
-    ld c, 0
-.inspectSlot
-    ld a, c
-    call Storage_GetEntryAddress
-    ld a, [hl]
-    cp ENTRY_STATUS_USED
-    jr nz, .freeSlotFound
-    inc c
-    ld a, c
-    cp SLOT_COUNT
-    jr nz, .inspectSlot
-    Throw ERROR_STORAGE_FULL
-.freeSlotFound
-    ld a, c
-    ld [wTargetSlot], a
-    Succeed
-
-Storage_RebuildIndex::
-    xor a
-    ld [wUsedSlotCount], a
-    ld c, 0
-.inspectSlot
-    ld a, c
-    call Storage_GetEntryAddress
-    ld a, [hl]
-    cp ENTRY_STATUS_USED
-    jr nz, .nextSlot
-    ld a, [wUsedSlotCount]
-    ld e, a
-    ld d, 0
-    ld hl, wUsedSlotIndexes
-    add hl, de
-    ld [hl], c
-    inc a
-    ld [wUsedSlotCount], a
-.nextSlot
-    inc c
-    ld a, c
-    cp SLOT_COUNT
-    jr nz, .inspectSlot
+Storage_ClearSignalEntry::
+    call Storage_GetSignalEntryAddress
+    ld a, ENTRY_STATUS_FREE
+    ld [hl], a
     ret
 
-Storage_CommitNewSignal::
-    ld a, [wTargetSlot]
-    cp SLOT_COUNT
-    jr c, .slotIsValid
-    Throw ERROR_INVALID_SLOT
-.slotIsValid
-    call Storage_GetEntryAddress
+Storage_WriteCardEntry:
+    call Storage_GetCardEntryAddress
     ld a, ENTRY_STATUS_USED
     ld [hli], a
-    ld de, wNameBuffer
     ld b, NAME_LENGTH
 .copyNameByte
     ld a, [de]
@@ -198,89 +229,338 @@ Storage_CommitNewSignal::
     inc de
     dec b
     jr nz, .copyNameByte
+    ret
+
+Storage_WriteSignalEntry:
+    call Storage_GetSignalEntryAddress
+    ld a, ENTRY_STATUS_USED
+    ld [hli], a
+    ld a, c
+    ld [hli], a
+    ld b, NAME_LENGTH
+.copyNameByte
+    ld a, [de]
+    ld [hli], a
+    inc de
+    dec b
+    jr nz, .copyNameByte
+    ret
+
+Storage_FindFreeCard::
+    ld c, 0
+.inspectCard
+    ld a, c
+    call Storage_GetCardEntryAddress
+    ld a, [hl]
+    cp ENTRY_STATUS_USED
+    jr nz, .freeCardFound
+    inc c
+    ld a, c
+    cp CARD_COUNT_MAX
+    jr nz, .inspectCard
+    Throw ERROR_CARD_LIST_FULL
+.freeCardFound
+    ld a, c
+    ld [wTargetCard], a
+    Succeed
+
+Storage_FindFreeSignalSlot::
+    ld c, 0
+.inspectSlot
+    ld a, [wSignalSlotLimit]
+    cp c
+    jr z, .noFreeSlot
+    ld a, c
+    call Storage_GetSignalEntryAddress
+    ld a, [hl]
+    cp ENTRY_STATUS_USED
+    jr nz, .freeSlotFound
+    inc c
+    jr .inspectSlot
+.noFreeSlot
+    Throw ERROR_STORAGE_FULL
+.freeSlotFound
+    ld a, c
+    ld [wTargetSlot], a
+    Succeed
+
+Storage_CountUsedSignals::
+    ld c, 0
+    ld d, 0
+.inspectSlot
+    ld a, c
+    call Storage_GetSignalEntryAddress
+    ld a, [hl]
+    cp ENTRY_STATUS_USED
+    jr nz, .nextSlot
+    inc d
+.nextSlot
+    inc c
+    ld a, c
+    cp SIGNAL_SLOT_COUNT
+    jr nz, .inspectSlot
+    ld a, d
+    ret
+
+Storage_ComputeDirectoryBytesInUse::
+    ld hl, DIRECTORY_SIGNATURE_LENGTH + DIRECTORY_CHECKSUM_LENGTH
+    ld a, [wUsedCardCount]
+    and a
+    jr z, .cardsCounted
+    ld de, CARD_ENTRY_SIZE_BYTES
+.addCard
+    add hl, de
+    dec a
+    jr nz, .addCard
+.cardsCounted
+    push hl
+    call Storage_CountUsedSignals
+    pop hl
+    and a
+    jr z, .signalsCounted
+    ld de, SIGNAL_ENTRY_SIZE_BYTES
+.addSignal
+    add hl, de
+    dec a
+    jr nz, .addSignal
+.signalsCounted
+    ld d, h
+    ld e, l
+    ret
+
+Storage_CheckCardHasRoom::
+    ld a, [wTargetCard]
+    call Storage_RebuildSignalIndex
+    ld a, [wCardSignalCount]
+    cp SIGNALS_PER_CARD_MAX
+    jr c, .cardHasRoom
+    Throw ERROR_CARD_FULL
+.cardHasRoom
+    Succeed
+
+Storage_RebuildCardIndex::
+    xor a
+    ld [wUsedCardCount], a
+    ld c, 0
+.inspectCard
+    ld a, c
+    call Storage_GetCardEntryAddress
+    ld a, [hl]
+    cp ENTRY_STATUS_USED
+    jr nz, .nextCard
+    ld a, [wUsedCardCount]
+    ld b, a
+    inc a
+    ld [wUsedCardCount], a
+    ld hl, wUsedCardIndexes
+    ld a, l
+    add b
+    ld l, a
+    jr nc, .storeCardIndex
+    inc h
+.storeCardIndex
+    ld [hl], c
+.nextCard
+    inc c
+    ld a, c
+    cp CARD_COUNT_MAX
+    jr nz, .inspectCard
+    ret
+
+Storage_RebuildSignalIndex::
+    ld e, a
+    xor a
+    ld [wCardSignalCount], a
+    ld c, 0
+.inspectSlot
+    ld a, c
+    call Storage_GetSignalEntryAddress
+    ld a, [hli]
+    cp ENTRY_STATUS_USED
+    jr nz, .nextSlot
+    ld a, [hl]
+    cp e
+    jr nz, .nextSlot
+    ld a, [wCardSignalCount]
+    cp SIGNALS_PER_CARD_MAX
+    jr nc, .nextSlot
+    ld b, a
+    inc a
+    ld [wCardSignalCount], a
+    ld hl, wCardSignalIndexes
+    ld a, l
+    add b
+    ld l, a
+    jr nc, .storeSlotIndex
+    inc h
+.storeSlotIndex
+    ld [hl], c
+.nextSlot
+    inc c
+    ld a, c
+    cp SIGNAL_SLOT_COUNT
+    jr nz, .inspectSlot
+    ret
+
+Storage_CommitNewCard::
+    ld a, [wTargetCard]
+    cp CARD_COUNT_MAX
+    jr c, .cardIsValid
+    Throw ERROR_INVALID_CARD
+.cardIsValid
+    ld de, wNameBuffer
+    call Storage_WriteCardEntry
+    call Storage_FlushDirectory
+    and a
+    ret z
+    push af
+    ld a, [wTargetCard]
+    call Storage_ClearCardEntry
+    pop af
+    ret
+
+Storage_CommitNewSignal::
+    ld a, [wSignalSlotLimit]
+    ld b, a
+    ld a, [wTargetSlot]
+    cp b
+    jr c, .slotIsValid
+    Throw ERROR_INVALID_SIGNAL
+.slotIsValid
+    ld a, [wTargetCard]
+    cp CARD_COUNT_MAX
+    jr c, .cardIsValid
+    Throw ERROR_INVALID_CARD
+.cardIsValid
+    ld c, a
+    ld a, [wTargetSlot]
+    ld de, wNameBuffer
+    call Storage_WriteSignalEntry
     call Storage_FlushDirectory
     and a
     ret z
     push af
     ld a, [wTargetSlot]
-    call Storage_ClearEntry
+    call Storage_ClearSignalEntry
     pop af
     ret
 
-Storage_DeleteSlot::
-    cp SLOT_COUNT
-    jr c, .slotIsValid
-    Throw ERROR_INVALID_SLOT
-.slotIsValid
-    call Storage_ClearEntry
-    jp Storage_FlushDirectory
-
-Storage_SelectSampleBank::
-    add FIRST_SAMPLE_BANK
+Storage_CommitNewCardWithSignal::
+    ld a, [wSignalSlotLimit]
     ld b, a
-    call Sram_Enable
-    ld a, b
-    jp Sram_SelectBank
-
-Storage_SaveSampleFromBuffer::
     ld a, [wTargetSlot]
-    call Storage_SelectSampleBank
-    ld hl, SRAM_BASE_ADDRESS
-    ld de, wSampleBuffer
-    ld bc, SAMPLE_BUFFER_SIZE_BYTES
-    call Memory_CopyBytes
-    ld a, SAMPLE_BANK_SIGNATURE
-    ld [SAMPLE_SIGNATURE_ADDRESS], a
-    ld hl, SRAM_BASE_ADDRESS
-    ld de, wSampleBuffer
-    ld bc, SAMPLE_BUFFER_SIZE_BYTES
-    call Memory_CompareBlock
-    ld b, a
-    call Sram_Disable
-    ld a, b
+    cp b
+    jr c, .slotIsValid
+    Throw ERROR_INVALID_SIGNAL
+.slotIsValid
+    ld a, [wTargetCard]
+    cp CARD_COUNT_MAX
+    jr c, .cardIsValid
+    Throw ERROR_INVALID_CARD
+.cardIsValid
+    ld de, wPendingCardName
+    call Storage_WriteCardEntry
+    ld a, [wTargetCard]
+    ld c, a
+    ld a, [wTargetSlot]
+    ld de, wNameBuffer
+    call Storage_WriteSignalEntry
+    call Storage_FlushDirectory
     and a
     ret z
-    Throw ERROR_STORAGE_VERIFY_FAILED
-
-Storage_LoadSampleToBuffer::
-    Try Storage_VerifySampleSignature
+    push af
+    ld a, [wTargetCard]
+    call Storage_ClearCardEntry
     ld a, [wTargetSlot]
-    call Storage_SelectSampleBank
-    ld hl, wSampleBuffer
-    ld de, SRAM_BASE_ADDRESS
-    ld bc, SAMPLE_BUFFER_SIZE_BYTES
-    call Memory_CopyBytes
-    call Sram_Disable
-    Succeed
+    call Storage_ClearSignalEntry
+    pop af
+    ret
 
-Storage_VerifySampleSignature::
-    ld a, [wTargetSlot]
-    call Storage_SelectSampleBank
-    ld a, [SAMPLE_SIGNATURE_ADDRESS]
-    ld b, a
-    call Sram_Disable
-    ld a, b
-    cp SAMPLE_BANK_SIGNATURE
-    jr z, .signatureIntact
-    Throw ERROR_SIGNAL_DAMAGED
-.signatureIntact
-    Succeed
+Storage_DeleteSignal::
+    cp SIGNAL_SLOT_COUNT
+    jr c, .slotIsValid
+    Throw ERROR_INVALID_SIGNAL
+.slotIsValid
+    call Storage_ClearSignalEntry
+    jp Storage_FlushDirectory
 
-Storage_ValidateName::
+Storage_DeleteCard::
+    cp CARD_COUNT_MAX
+    jr c, .cardIsValid
+    Throw ERROR_INVALID_CARD
+.cardIsValid
+    ld e, a
+    ld c, 0
+.inspectSignal
+    ld a, c
+    call Storage_GetSignalEntryAddress
+    ld a, [hli]
+    cp ENTRY_STATUS_USED
+    jr nz, .nextSignal
+    ld a, [hl]
+    cp e
+    jr nz, .nextSignal
+    ld a, c
+    call Storage_ClearSignalEntry
+.nextSignal
+    inc c
+    ld a, c
+    cp SIGNAL_SLOT_COUNT
+    jr nz, .inspectSignal
+    ld a, e
+    call Storage_ClearCardEntry
+    jp Storage_FlushDirectory
+
+Storage_ValidateCardName::
     call NameBuffer_CountNonSpace
     and a
     jr nz, .nameHasContent
     Throw ERROR_NAME_EMPTY
 .nameHasContent
-    jp Storage_CheckNameUnused
+    jp Storage_CheckCardNameUnused
 
-Storage_CheckNameUnused::
+Storage_ValidateSignalName::
+    call NameBuffer_CountNonSpace
+    and a
+    jr nz, .nameHasContent
+    Throw ERROR_NAME_EMPTY
+.nameHasContent
+    jp Storage_CheckSignalNameUnused
+
+Storage_CheckCardNameUnused::
+    ld c, 0
+.inspectCard
+    ld a, c
+    call Storage_GetCardEntryAddress
+    ld a, [hli]
+    cp ENTRY_STATUS_USED
+    jr nz, .nextCard
+    ld de, wNameBuffer
+    ld b, NAME_LENGTH
+    call Memory_CompareBytes
+    and a
+    jr z, .nameAlreadyUsed
+.nextCard
+    inc c
+    ld a, c
+    cp CARD_COUNT_MAX
+    jr nz, .inspectCard
+    Succeed
+.nameAlreadyUsed
+    Throw ERROR_CARD_NAME_IN_USE
+
+Storage_CheckSignalNameUnused::
     ld c, 0
 .inspectSlot
     ld a, c
-    call Storage_GetEntryAddress
+    call Storage_GetSignalEntryAddress
     ld a, [hli]
     cp ENTRY_STATUS_USED
+    jr nz, .nextSlot
+    ld a, [hli]
+    ld b, a
+    ld a, [wTargetCard]
+    cp b
     jr nz, .nextSlot
     ld de, wNameBuffer
     ld b, NAME_LENGTH
@@ -290,8 +570,74 @@ Storage_CheckNameUnused::
 .nextSlot
     inc c
     ld a, c
-    cp SLOT_COUNT
+    cp SIGNAL_SLOT_COUNT
     jr nz, .inspectSlot
     Succeed
 .nameAlreadyUsed
-    Throw ERROR_NAME_IN_USE
+    Throw ERROR_SIGNAL_NAME_IN_USE
+
+Storage_SelectSampleSlot::
+    inc a
+    ld b, a
+    srl a
+    ld c, a
+    ld a, b
+    and SLOTS_PER_BANK - 1
+    ld hl, SRAM_BASE_ADDRESS
+    jr z, .firstHalfSelected
+    ld hl, SRAM_BASE_ADDRESS + SLOT_HALF_SIZE_BYTES
+.firstHalfSelected
+    call Sram_Enable
+    ld a, c
+    jp Sram_SelectBank
+
+Storage_SaveSampleFromBuffer::
+    ld a, [wTargetSlot]
+    call Storage_SelectSampleSlot
+    push hl
+    ld de, wSampleBuffer
+    ld bc, SAMPLE_BUFFER_SIZE_BYTES
+    call Memory_CopyBytes
+    pop hl
+    push hl
+    ld de, SLOT_SIGNATURE_OFFSET
+    add hl, de
+    ld a, SAMPLE_BANK_SIGNATURE
+    ld [hl], a
+    pop hl
+    ld de, wSampleBuffer
+    ld bc, SAMPLE_BUFFER_SIZE_BYTES
+    call Memory_CompareBlock
+    ld b, a
+    call Sram_Disable
+    ld a, b
+    and a
+    ret z
+    Throw ERROR_SAMPLE_VERIFY_FAILED
+
+Storage_LoadSampleToBuffer::
+    Try Storage_VerifySampleSignature
+    ld a, [wTargetSlot]
+    call Storage_SelectSampleSlot
+    ld d, h
+    ld e, l
+    ld hl, wSampleBuffer
+    ld bc, SAMPLE_BUFFER_SIZE_BYTES
+    call Memory_CopyBytes
+    call Sram_Disable
+    Succeed
+
+Storage_VerifySampleSignature::
+    ld a, [wTargetSlot]
+    call Storage_SelectSampleSlot
+    ld de, SLOT_SIGNATURE_OFFSET
+    add hl, de
+    ld a, [hl]
+    ld b, a
+    call Sram_Disable
+    ld a, b
+    cp SAMPLE_BANK_SIGNATURE
+    jr z, .signatureIntact
+    Throw ERROR_SIGNAL_DAMAGED
+.signatureIntact
+    Succeed

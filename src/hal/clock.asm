@@ -25,7 +25,9 @@ Clock_ToggleSpeed::
     ld a, INTERRUPTS_ALL_DISABLED
     ldh [rIF], a
     ldh [rIE], a
-    ld a, KEY1_PREPARE_SPEED_SWITCH
+    ldh a, [rKEY1]
+    and KEY1_DOUBLE_SPEED_ACTIVE
+    or KEY1_PREPARE_SPEED_SWITCH
     ldh [rKEY1], a
     stop
     ret

@@ -3,7 +3,7 @@ INCLUDE "common.inc"
 SECTION "WorkflowSend", ROM0
 
 Workflow_SendSelectedSignal::
-    call ListScreen_GetSelectedSlot
+    call SignalListScreen_GetSelectedSlot
     ld [wTargetSlot], a
     Try Storage_LoadSampleToBuffer
     ld a, THEME_SENDING

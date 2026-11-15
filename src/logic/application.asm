@@ -1,33 +1,72 @@
 INCLUDE "common.inc"
 
+SECTION "ApplicationState", WRAM0
+wLastErrorCode:: ds 1
+
 SECTION "Application", ROM0
 
 Application_Run::
     call Storage_Mount
+    push af
+    call EventLog_RecordMountResult
+    pop af
     call Application_Catch
 .mainLoop
-    call Storage_RebuildIndex
-    ld a, [wUsedSlotCount]
+    call Storage_RebuildCardIndex
+    ld a, [wUsedCardCount]
     and a
-    jr nz, .showList
-    call Workflow_RecordNewSignal
+    jr nz, .showCardList
+    call Workflow_RecordFirstSignal
     jr .handleResult
-.showList
-    call ListScreen_Run
-    cp LIST_ACTION_NEW
-    jr z, .startNewRecording
-    cp LIST_ACTION_SEND
+.showCardList
+    call CardListScreen_Run
+IF DEF(DEBUG_BUILD)
+    cp CARD_LIST_ACTION_DEBUG
+    jr nz, .notDebugRequest
+    call DebugScreen_Run
+    jr .mainLoop
+.notDebugRequest
+ENDC
+    cp CARD_LIST_ACTION_OPEN
+    jr z, .openCard
+    cp CARD_LIST_ACTION_NEW
+    jr z, .createCard
+    call Workflow_DeleteSelectedCard
+    jr .handleResult
+.openCard
+    call Application_RunCard
+    jr .mainLoop
+.createCard
+    call Workflow_CreateCard
+.handleResult
+    call Application_Catch
+    jr .mainLoop
+
+Application_RunCard:
+    call CardListScreen_GetSelectedCard
+    ld [wSelectedCard], a
+    xor a
+    ld [wSignalListCursor], a
+.cardLoop
+    ld a, [wSelectedCard]
+    call Storage_RebuildSignalIndex
+    call SignalListScreen_Run
+    cp SIGNAL_LIST_ACTION_BACK
+    ret z
+    cp SIGNAL_LIST_ACTION_SEND
     jr z, .sendSignal
+    cp SIGNAL_LIST_ACTION_NEW
+    jr z, .newSignal
     call Workflow_DeleteSelectedSignal
     jr .handleResult
-.startNewRecording
-    call Workflow_RecordNewSignal
+.newSignal
+    call Workflow_RecordSignalInCard
     jr .handleResult
 .sendSignal
     call Workflow_SendSelectedSignal
 .handleResult
     call Application_Catch
-    jr .mainLoop
+    jr .cardLoop
 
 Application_Catch::
     ld b, a
@@ -35,4 +74,9 @@ Application_Catch::
     and a
     ret z
     ld a, b
+    ld [wLastErrorCode], a
+    ld b, a
+    ld a, EVENT_ERROR
+    call EventLog_Append
+    ld a, [wLastErrorCode]
     jp ErrorScreen_Show
