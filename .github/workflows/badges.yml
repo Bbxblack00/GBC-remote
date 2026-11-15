@@ -17,7 +17,7 @@ env:
 
 jobs:
   badges:
-    runs-on: alpine-letest
+    runs-on: alpine-latest
     steps:
       - name: Check out the code
         uses: actions/checkout@v4
