@@ -28,5 +28,10 @@ DialogDiscardSignal::
 DiscardDialogDescriptors::
     dw DialogDiscardCardWithSignal, DialogDiscardCard, DialogDiscardSignal
 
+DirectoryClassNames::
+IF DEF(DEBUG_BUILD)
+    dw StringDebugValid, StringDebugUnformatted, StringDebugDamaged, StringDebugNotChecked
+ENDC
+
 NameEntryTitles::
     dw StringTitleNameCard, StringTitleNameCard, StringTitleNameSignal

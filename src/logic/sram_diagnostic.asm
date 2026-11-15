@@ -48,7 +48,7 @@ SramDiagnostic_WriteAllBanks:
     ld d, a
     ld hl, SRAM_BASE_ADDRESS
 .writeByte
-    call SramDiagnostic_IsProbeByte
+    call SramDiagnostic_IsReservedByte
     jr z, .skipByte
     ld a, l
     xor d
@@ -76,7 +76,7 @@ SramDiagnostic_VerifyAllBanks:
     ld e, DIAGNOSTIC_BANK_OK
     ld hl, SRAM_BASE_ADDRESS
 .verifyByte
-    call SramDiagnostic_IsProbeByte
+    call SramDiagnostic_IsReservedByte
     jr z, .byteMatches
     ld a, l
     xor d
@@ -174,13 +174,29 @@ SramDiagnostic_GetRowAddress:
     add hl, de
     ret
 
-SramDiagnostic_IsProbeByte:
+SramDiagnostic_IsReservedByte:
     ld a, h
     cp HIGH(SRAM_PROBE_ADDRESS)
-    ret nz
+    jr nz, .checkLogRegion
     ld a, l
     cp LOW(SRAM_PROBE_ADDRESS)
     ret
+.checkLogRegion
+    ld a, c
+    and a
+    jr nz, .notReserved
+    ld a, h
+    cp HIGH(LOG_BASE_ADDRESS)
+    jr c, .notReserved
+    cp HIGH(LOG_BASE_ADDRESS + LOG_SIZE_BYTES)
+    jr nc, .notReserved
+    xor a
+    ret
+.notReserved
+    ld a, 1
+    and a
+    ret
+
 SramDiagnostic_AreAllBanksOk:
     ld hl, wDiagnosticBankResults
     ld b, DIAGNOSTIC_BANK_COUNT

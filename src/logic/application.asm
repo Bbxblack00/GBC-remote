@@ -1,9 +1,15 @@
 INCLUDE "common.inc"
 
+SECTION "ApplicationState", WRAM0
+wLastErrorCode:: ds 1
+
 SECTION "Application", ROM0
 
 Application_Run::
     call Storage_Mount
+    push af
+    call EventLog_RecordMountResult
+    pop af
     call Application_Catch
 .mainLoop
     call Storage_RebuildCardIndex
@@ -14,6 +20,13 @@ Application_Run::
     jr .handleResult
 .showCardList
     call CardListScreen_Run
+IF DEF(DEBUG_BUILD)
+    cp CARD_LIST_ACTION_DEBUG
+    jr nz, .notDebugRequest
+    call DebugScreen_Run
+    jr .mainLoop
+.notDebugRequest
+ENDC
     cp CARD_LIST_ACTION_OPEN
     jr z, .openCard
     cp CARD_LIST_ACTION_NEW
@@ -61,4 +74,9 @@ Application_Catch::
     and a
     ret z
     ld a, b
+    ld [wLastErrorCode], a
+    ld b, a
+    ld a, EVENT_ERROR
+    call EventLog_Append
+    ld a, [wLastErrorCode]
     jp ErrorScreen_Show

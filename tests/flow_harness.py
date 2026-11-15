@@ -145,6 +145,9 @@ class Session:
             image[offset:offset + len(data)] = data
         ram_path.write_bytes(image)
 
+    def read_ram(self):
+        return Path(str(self.rom_path) + ".ram").read_bytes()
+
     def start(self, held_buttons=(), ram_patches=None):
         if ram_patches:
             self.write_ram(ram_patches)

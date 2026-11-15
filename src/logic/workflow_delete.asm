@@ -11,5 +11,6 @@ Workflow_DeleteSelectedSignal::
     call Storage_DeleteSignal
     and a
     ret nz
+    LogEvent EVENT_SAVE, DELETE_SIGNAL
     call Jingle_PlayDeletion
     Succeed

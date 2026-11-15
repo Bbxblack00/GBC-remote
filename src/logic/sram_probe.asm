@@ -19,9 +19,11 @@ SramProbe_Run::
     call SramProbe_WriteMarkers
     call SramProbe_DetectBankCount
     and a
-    jr nz, .storeBankCount
+    jr nz, .clampBankCount
     ld a, 1
-.storeBankCount
+.clampBankCount
+    ld b, SRAM_BANK_LIMIT
+    call SramProbe_ClampBankCount
     ld [wSramBankCount], a
     call SramProbe_SlotLimitFor
     ld [wSignalSlotLimit], a
@@ -76,6 +78,12 @@ SramProbe_DetectBankCount::
     ret
 .markersInconsistent
     xor a
+    ret
+
+SramProbe_ClampBankCount::
+    cp b
+    ret c
+    ld a, b
     ret
 
 SramProbe_SlotLimitFor::

@@ -74,6 +74,21 @@ Test_BankCountIsDetectedFromAliasedPatterns::
     call Sram_Disable
     TestPassed
 
+Test_BankLimitClampsTheDetectedBanks::
+    ld a, SRAM_BANK_COUNT_MAX
+    ld b, TEST_BANKS_FOUR
+    call SramProbe_ClampBankCount
+    ExpectEqual TEST_BANKS_FOUR
+    ld a, TEST_BANKS_ONE
+    ld b, TEST_BANKS_FOUR
+    call SramProbe_ClampBankCount
+    ExpectEqual TEST_BANKS_ONE
+    ld a, TEST_BANKS_EIGHT
+    ld b, TEST_BANKS_EIGHT
+    call SramProbe_ClampBankCount
+    ExpectEqual TEST_BANKS_EIGHT
+    TestPassed
+
 Test_SlotLimitFollowsBankCount::
     ld a, TEST_BANKS_ONE
     call SramProbe_SlotLimitFor

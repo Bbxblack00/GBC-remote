@@ -11,11 +11,11 @@ ErrorHelper_AlwaysSucceeds:
 
 ErrorHelper_CallsFailingHelper:
     Try ErrorHelper_AlwaysFails
-    Throw ERROR_INVALID_SLOT
+    Throw ERROR_INVALID_CARD
 
 ErrorHelper_CallsSucceedingHelper:
     Try ErrorHelper_AlwaysSucceeds
-    Throw ERROR_INVALID_SLOT
+    Throw ERROR_INVALID_CARD
 
 Test_TryPropagatesFailure::
     call ErrorHelper_CallsFailingHelper
@@ -24,7 +24,7 @@ Test_TryPropagatesFailure::
 
 Test_TryContinuesAfterSuccess::
     call ErrorHelper_CallsSucceedingHelper
-    ExpectEqual ERROR_INVALID_SLOT
+    ExpectEqual ERROR_INVALID_CARD
     TestPassed
 
 Test_NoneIsNotDisplayable::

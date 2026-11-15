@@ -9,13 +9,13 @@ StorageTest_SetSingleGlyphName:
     pop af
     jp NameBuffer_Append
 
-StorageTest_CommitCard:
+StorageTest_CommitCard::
     ld [wTargetCard], a
     ld a, c
     call StorageTest_SetSingleGlyphName
     jp Storage_CommitNewCard
 
-StorageTest_CommitSignal:
+StorageTest_CommitSignal::
     ld [wTargetSlot], a
     ld a, b
     ld [wTargetCard], a
@@ -23,7 +23,7 @@ StorageTest_CommitSignal:
     call StorageTest_SetSingleGlyphName
     jp Storage_CommitNewSignal
 
-StorageTest_CommitCards:
+StorageTest_CommitCards::
     ld d, 0
 .commitCard
     ld a, d
@@ -181,7 +181,7 @@ Test_CardNameMustBeUnique::
     ld a, GLYPH_LETTER_A
     call StorageTest_SetSingleGlyphName
     call Storage_ValidateCardName
-    ExpectEqual ERROR_NAME_IN_USE
+    ExpectEqual ERROR_CARD_NAME_IN_USE
     ld a, GLYPH_LETTER_A + 1
     call StorageTest_SetSingleGlyphName
     call Storage_ValidateCardName
@@ -210,7 +210,7 @@ Test_SignalNameIsUniqueWithinCardOnly::
     ld a, GLYPH_LETTER_A + 23
     call StorageTest_SetSingleGlyphName
     call Storage_ValidateSignalName
-    ExpectEqual ERROR_NAME_IN_USE
+    ExpectEqual ERROR_SIGNAL_NAME_IN_USE
     ld a, 1
     ld [wTargetCard], a
     ld a, GLYPH_LETTER_A + 23
@@ -352,19 +352,19 @@ Test_InvalidIndicesAreRejected::
     call Test_ResetWorld
     ld a, CARD_COUNT_MAX
     call Storage_DeleteCard
-    ExpectEqual ERROR_INVALID_SLOT
+    ExpectEqual ERROR_INVALID_CARD
     ld a, SIGNAL_SLOT_COUNT
     call Storage_DeleteSignal
-    ExpectEqual ERROR_INVALID_SLOT
+    ExpectEqual ERROR_INVALID_SIGNAL
     ld a, CARD_COUNT_MAX
     ld c, GLYPH_LETTER_A
     call StorageTest_CommitCard
-    ExpectEqual ERROR_INVALID_SLOT
+    ExpectEqual ERROR_INVALID_CARD
     ld a, SIGNAL_SLOT_COUNT
     ld b, 0
     ld c, GLYPH_LETTER_A
     call StorageTest_CommitSignal
-    ExpectEqual ERROR_INVALID_SLOT
+    ExpectEqual ERROR_INVALID_SIGNAL
     TestPassed
 
 Test_UsedSignalsAreCounted::

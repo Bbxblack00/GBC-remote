@@ -16,6 +16,7 @@ Workflow_RecordFirstSignal::
     ld a, NAME_KIND_SIGNAL
     Try NameEntryScreen_Run
     Try Storage_CommitNewCardWithSignal
+    LogEvent EVENT_SAVE, SAVE_CARD_AND_SIGNAL
     call Jingle_PlaySuccess
     Succeed
 
@@ -29,5 +30,6 @@ Workflow_RecordSignalInCard::
     ld a, NAME_KIND_SIGNAL
     Try NameEntryScreen_Run
     Try Storage_CommitNewSignal
+    LogEvent EVENT_SAVE, SAVE_SIGNAL
     call Jingle_PlaySuccess
     Succeed

@@ -1,425 +1,510 @@
-# Documentazione tecnica
+# Technical documentation
 
-Questo file raccoglie la parte tecnica del progetto: memoria, formato dei dati, temporizzazione dell'infrarosso, gestione degli errori, test e tutto quello che abbiamo scoperto sull'hardware. Per l'uso del programma vedi `README.md`. Per le regole di sviluppo vedi `../AGENTS.md`.
+This file holds the technical side of the project: memory, data formats, infrared timing, error handling, tests, and everything we discovered about the hardware. For how to use the program see `README.md`. For the debug build and the event log see `DEBUG.md`. For the development rules see `../AGENTS.md`.
 
-Le affermazioni sono etichettate: **verificato** (provato su emulatore o su console), **ipotesi** (coerente con i dati, non provata), **ignoto**.
+Statements are labeled: **verified** (tried on the emulator or on a console), **hypothesis** (consistent with the data, not proven), **unknown**.
 
-## Indice
+## Index
 
-1. Architettura
-2. Avvio
-3. Memoria della console (WRAM)
-4. SRAM della cartuccia
-5. Campionamento infrarosso
-6. Velocità della CPU
-7. Gestione degli errori
-8. Interfaccia
-9. Audio
-10. Build
-11. Test
-12. Cosa abbiamo scoperto sull'hardware
-13. Limiti e prossimi passi
-14. Hardware usato per le prove
-15. Copertura dei test
-16. Riferimenti
+1. [Architecture](#1-architecture)
+2. [Boot](#2-boot)
+3. [Console memory (WRAM)](#3-console-memory-wram)
+4. [Cartridge SRAM](#4-cartridge-sram)
+5. [Infrared sampling](#5-infrared-sampling)
+6. [CPU speed](#6-cpu-speed)
+7. [Error handling](#7-error-handling)
+8. [User interface](#8-user-interface)
+9. [Audio](#9-audio)
+10. [Build](#10-build)
+11. [Tests](#11-tests)
+12. [What we discovered about the hardware](#12-what-we-discovered-about-the-hardware)
+13. [Limits and next steps](#13-limits-and-next-steps)
+14. [Hardware used for testing](#14-hardware-used-for-testing)
+15. [Test coverage](#15-test-coverage)
+16. [References](#16-references)
 
-## 1. Architettura
+## 1. Architecture
 
 ```
-inc/            costanti, nomi dei registri, macro (nessun numero magico nel codice)
-src/boot/       punto di ingresso e main
-src/hal/        accesso all'hardware: clock, lcd, joypad, sram, infrared, audio, vram_text
-src/lib/        funzioni generiche di memoria
-src/logic/      logica applicativa e schermate
-src/data/       solo tabelle: font, stringhe, dialoghi, palette, tastiera, melodie, firma
-tests/          framework in assembly, casi, runner Python, harness di flusso
-docs/           questa documentazione
+inc/            constants, register names, macros (no magic numbers in the code)
+src/boot/       entry point and main
+src/hal/        hardware access: clock, lcd, joypad, sram, infrared, audio, vram_text
+src/lib/        generic memory helpers
+src/logic/      application logic and screens
+src/data/       tables only: font, strings, dialogs, palettes, keyboard, melodies, signatures
+tests/          assembly framework, cases, Python runners, flow harness
+tools/          command-line tools (event log decoder)
+docs/           this documentation
 ```
 
-Regole:
-- Solo `src/hal/` e `src/lib/` toccano i registri hardware.
-- Nessun commento nel codice: i nomi spiegano l'intento. Vale anche per Makefile e Python.
-- Ogni stato in RAM ha un solo modulo proprietario.
+Rules:
+- Only `src/hal/` and `src/lib/` touch hardware registers.
+- No comments in the code: the names explain the intent. This applies to the Makefile and to Python as well.
+- Every piece of RAM state has exactly one owner module.
 
-Moduli principali di `src/logic/`:
+Main modules of `src/logic/`:
 
-| Modulo | Compito |
+| Module | Job |
 |---|---|
-| `application` | ciclo principale: lista schede, apertura scheda, azioni |
-| `storage` | directory, schede, segnali, campioni, nomi unici, ripristino |
-| `sram_probe` | misura delle banche SRAM a ogni avvio |
-| `sram_diagnostic` | diagnostica con SELECT all'avvio |
-| `signal_capture` | attesa e cattura del segnale |
-| `list_view` | lista a scorrimento con cursore |
-| `card_list_screen`, `signal_list_screen` | schermate delle liste |
-| `name_entry_screen`, `keyboard`, `name_buffer` | inserimento del nome |
-| `confirm_dialog` | tutte le conferme, guidate da descrittori in `src/data/dialogs.asm` |
-| `workflow_*` | sequenze: primo segnale, nuovo segnale, scheda, invio, eliminazione |
-| `error_screen`, `error_handling` | errori |
-| `jingle` | melodie |
+| `application` | main loop: card list, opening a card, actions |
+| `storage` | directory, cards, signals, samples, unique names, repair |
+| `event_log` | persistent event log in SRAM |
+| `sram_probe` | measures the SRAM banks at every boot |
+| `sram_diagnostic` | diagnostic opened with SELECT at boot |
+| `debug_screen` | debug screen (debug build only) |
+| `signal_capture` | waiting for and capturing the signal |
+| `list_view` | scrolling list with cursor |
+| `card_list_screen`, `signal_list_screen` | the list screens |
+| `name_entry_screen`, `keyboard`, `name_buffer` | name entry |
+| `confirm_dialog` | every confirmation, driven by descriptors in `src/data/dialogs.asm` |
+| `workflow_*` | sequences: first signal, new signal, card, send, delete |
+| `error_screen`, `error_handling` | errors |
+| `jingle` | melodies |
 
-## 2. Avvio
+## 2. Boot
 
-Ordine in `src/boot/main.asm`:
+Order in `src/boot/main.asm`:
 
-1. Stack e `Clock_EnterNormalSpeed` (la console parte a velocità normale).
-2. `Lcd_Initialise`: LCD spento, font caricato, mappe azzerate.
-3. `SramProbe_Run`: misura le banche e calcola il limite dei segnali.
-4. Se SELECT è premuto: `SramDiagnostic_Run`.
-5. `Application_Run` → `Storage_Mount`.
+1. Stack and `Clock_EnterNormalSpeed` (the console starts at normal speed).
+2. `Lcd_Initialise`: LCD off, font loaded, maps cleared.
+3. `SramProbe_Run`: measures the banks and computes the signal limit.
+4. `EventLog_Initialise` and `EventLog_RecordBootFacts`: increment the boot counter and log the boot and the probe result.
+5. If SELECT is held: `SramDiagnostic_Run`.
+6. `Application_Run` → `Storage_Mount`, then `EventLog_RecordMountResult`.
 
-La WRAM non è inizializzata su hardware reale: nessuna routine deve presumere valori a zero all'avvio.
+WRAM is not initialized on real hardware: no routine may assume zero values at boot.
 
-## 3. Memoria della console (WRAM)
+## 3. Console memory (WRAM)
 
-| Zona | Dimensione | Proprietario |
+| Area | Size | Owner |
 |---|---|---|
-| Stack | 64 byte | `main` |
-| Specchio della directory | 779 byte | `storage` |
-| Nome in modifica (`wNameBuffer`) | 11 byte | `name_buffer` |
-| Nomi della lista a scorrimento | 32 × 11 = 352 byte | `list_view` |
-| Buffer dei campioni (`$D000`–`$DEFF`) | 3840 byte | `sample_buffer` |
+| Stack | 64 bytes | `main` |
+| Directory mirror | 779 bytes | `storage` |
+| Name being edited (`wNameBuffer`) | 11 bytes | `name_buffer` |
+| Names of the scrolling list | 32 × 11 = 352 bytes | `list_view` |
+| Sample buffer (`$D000`–`$DEFF`) | 3840 bytes | `sample_buffer` |
+| Boot counter, last error | 3 bytes | `event_log`, `application` |
 
-Il buffer dei campioni sta nella WRAM interna (`WRAMX`, banca 1). La cattura e l'invio IR leggono e scrivono solo questo buffer, mai la SRAM: la SRAM non regge gli accessi in double speed su alcune flashcart (ipotesi, vedi sezione 12).
+The sample buffer lives in internal WRAM (`WRAMX`, bank 1). Infrared capture and replay read and write only this buffer, never the SRAM: on some flashcarts the SRAM may not tolerate double speed accesses (hypothesis, see section 12).
 
-## 4. SRAM della cartuccia
+## 4. Cartridge SRAM
 
-### 4.1 Header del ROM
+### 4.1 ROM header
 
-`rgbfix -C` (solo GBC), tipo cartuccia `$1B` (MBC5 + RAM + batteria), ROM da 32 KB. La dimensione della RAM (`-r`) è la variabile `SRAM_SIZE_CODE` del Makefile: `0x04` = 128 KB (default), `0x03` = 32 KB, `0x02` = 8 KB.
+`rgbfix -C` (GBC only), cartridge type `$1B` (MBC5 + RAM + battery), 32 KB ROM. The RAM size (`-r`) follows the Makefile variable `SRAM_KB`:
 
-MBC5: abilitazione RAM scrivendo `$0A` a `$0000`, selezione della banca (`$00`–`$0F`) scrivendo a `$4000` [R2]. Dimensioni della RAM nell'header (`$0149`): `$02` = 8 KiB, `$03` = 32 KiB, `$04` = 128 KiB [R3]. Il flag `$0143` segna il ROM come solo-GBC [R3]. `rgbfix` imposta questi byte [R8]. Il programma abilita la SRAM solo per il tempo di ogni accesso e la disabilita subito dopo.
+| `SRAM_KB` | Header code `$0149` | Banks |
+|---|---|---|
+| 8 | `$02` | 1 |
+| 32 | `$03` | 4 |
+| 64 | `$05` | 8 |
+| 128 (default) | `$04` | 16 |
 
-### 4.2 Metà da 4096 byte
+`SRAM_KB` also sets `SRAM_BANK_LIMIT`, a ceiling on the banks the program is allowed to use: the usable banks are `min(measured banks, SRAM_BANK_LIMIT)`. The ceiling lets us try small memories on the emulator, which always has 128 KB.
 
-La SRAM si considera divisa in metà da 4096 byte (`$A000`–`$AFFF` e `$B000`–`$BFFF` di ogni banca).
+MBC5: RAM is enabled by writing `$0A` to `$0000`, and the bank (`$00`–`$0F`) is selected by writing to `$4000` [R2]. RAM sizes in the header (`$0149`): `$02` = 8 KiB, `$03` = 32 KiB, `$04` = 128 KiB [R3]. The flag `$0143` marks the ROM as GBC-only [R3]. `rgbfix` sets these bytes [R8]. The program enables the SRAM only for the duration of each access and disables it right after.
 
-- **Prima metà della banca 0:** directory.
-- **Ogni altra metà:** un segnale. Il segnale `n` sta nella metà `n + 1`, cioè nella banca `(n + 1) / 2`, metà `(n + 1) % 2`.
+### 4.2 Halves of 4096 bytes
 
-Il numero massimo di segnali è `min(30, 2 × banche − 1)`, dove `banche` è il numero di banche distinte misurato all'avvio. Con 128 KB: 30. Con 32 KB: 7. Con 8 KB: 1.
+The SRAM is treated as halves of 4096 bytes (`$A000`–`$AFFF` and `$B000`–`$BFFF` of every bank).
+
+- **First half of bank 0:** directory, event log, and reserved bytes (map below).
+- **Every other half:** one signal. Signal `n` lives in half `n + 1`, that is in bank `(n + 1) / 2`, half `(n + 1) % 2`.
+
+The maximum number of signals is `min(30, 2 × banks − 1)`, where `banks` is the number of distinct banks measured at boot. With 128 KB: 30. With 32 KB: 7. With 8 KB: 1.
+
+Map of the first half of bank 0:
+
+| Address | Size | Content |
+|---|---|---|
+| `$A000` | 779 | primary directory |
+| `$A400` | 779 | backup directory |
+| `$A800` | 1024 | event log |
+| `$AC00`–`$AEFF` | 768 | free |
+| `$AF00` | 1 | SRAM probe marker |
+| `$AFFF` | 1 | integrity byte of the half (unused in bank 0) |
 
 ### 4.3 Directory
 
-Dimensione: 4 + 32 × 12 + 30 × 13 + 1 = **779 byte**.
+Size: 4 + 32 × 12 + 30 × 13 + 1 = **779 bytes**.
 
-| Offset | Lunghezza | Contenuto |
+| Offset | Length | Content |
 |---|---|---|
-| 0 | 4 | firma `GBCR` (`47 42 43 52`) |
-| 4 | 32 × 12 | voci delle schede |
-| 388 | 30 × 13 | voci dei segnali |
+| 0 | 4 | signature `GBCR` (`47 42 43 52`) |
+| 4 | 32 × 12 | card entries |
+| 388 | 30 × 13 | signal entries |
 | 778 | 1 | checksum |
 
-Voce di scheda (12 byte): stato (`$A5` = usata, `$00` = libera) + 11 glifi di nome.
-Voce di segnale (13 byte): stato + indice della scheda + 11 glifi di nome.
+Card entry (12 bytes): status (`$A5` = used, `$00` = free) + 11 name glyphs.
+Signal entry (13 bytes): status + card index + 11 name glyphs.
 
-I nomi sono salvati come indici di glifo del font (A = 1, 0 = 27, spazio = 0), non come ASCII.
+Names are stored as font glyph indexes (A = 1, 0 = 27, space = 0), not as ASCII.
 
-Checksum: `$C3` più la somma dei 778 byte precedenti, modulo 256.
+Checksum: `$C3` plus the sum of the previous 778 bytes, modulo 256.
 
-**Due copie.** La directory è scritta due volte nella banca 0: la principale a `$A000` e una di riserva a `$A400`. Ogni scrittura riscrive entrambe e rilegge entrambe per verificarle.
+**Two copies.** The directory is written twice in bank 0: the primary at `$A000` and a backup at `$A400`. Every write rewrites both and reads both back to verify them.
 
-**Montaggio** (`Storage_Mount`):
+**Mounting** (`Storage_Mount`):
 
-1. Legge la copia principale e la classifica: valida (firma e checksum giusti), non formattata (firma assente) o danneggiata (firma presente, checksum sbagliato).
-2. Se valida: fine.
-3. Altrimenti legge la copia di riserva. Se è valida, riscrive la principale e finisce in silenzio.
-4. Se nessuna è valida: se almeno una ha la firma e contiene schede usate, riformatta e segnala E08. Se non contiene schede, riformatta in silenzio. Se nessuna ha la firma è il primo avvio: formatta in silenzio.
+1. Reads the primary copy and classifies it: valid (right signature and checksum), unformatted (signature missing), or damaged (signature present, wrong checksum).
+2. If valid: done. The backup class is recorded as "not checked".
+3. Otherwise reads the backup copy. If it is valid, rewrites the primary and finishes silently.
+4. If neither is valid: if at least one has the signature and holds used cards, reformats and reports E08. If it holds no cards, reformats silently. If neither has the signature it is the first launch: formats silently.
 
-Stato **verificato** su emulatore (test `Test_Mount*`).
+Status: **verified** on the emulator (tests `Test_Mount*`).
 
-### 4.4 Campioni
+### 4.4 Samples
 
-Ogni metà di segnale contiene:
+Every signal half contains:
 
-- 15 pagine da 256 byte = **3840 byte** di campioni;
-- una sedicesima pagina riservata. Il suo ultimo byte (`base + $0FFF`) è la firma `$5A`.
+- 15 pages of 256 bytes = **3840 bytes** of samples;
+- a sixteenth reserved page. Its last byte (`base + $0FFF`) is the signature `$5A`.
 
-Il segnale diventa "usato" nella directory solo dopo che i nomi sono confermati e la directory è scritta e riletta. Un nome annullato non lascia residui. Il campione, invece, è già scritto nella sua metà: resta come dato inutilizzato e viene sovrascritto alla prossima registrazione in quello slot.
+A signal becomes "used" in the directory only after the names are confirmed and the directory is written and read back. A cancelled name leaves no residue. The sample, however, is already written in its half: it stays as unused data and is overwritten by the next recording in that slot.
 
-La firma `$5A` serve a rilevare un campione mai scritto o danneggiato (errore E06).
+The signature `$5A` detects a sample that was never written or is damaged (error E06).
 
-### 4.5 Sonda della SRAM
+### 4.5 SRAM probe
 
-A ogni avvio `SramProbe_Run` scrive un byte marcatore in `$AF00` di ciascuna delle 16 banche (indice della banca XOR `$6B`). `$AF00` sta nella pagina riservata della prima metà, quindi non è mai usato da directory o campioni.
+At every boot `SramProbe_Run` writes a marker byte at `$AF00` of each of the 16 banks (bank index XOR `$6B`). `$AF00` sits in the reserved page of the first half, so no directory or sample ever uses it.
 
-Prima di scrivere, controlla se i marcatori dell'avvio precedente formano uno schema coerente (campo `SRAM KEPT`). Dopo aver scritto, ricava il numero di banche distinte `N`:
+Before writing, it checks whether the markers of the previous boot form a coherent pattern (the `SRAM KEPT` flag). After writing, it derives the number of distinct banks `N`:
 
-- Con `N` banche distinte, la banca `k` condivide la memoria con la banca `k mod N`. Dopo aver scritto le banche in ordine da 0 a 15, la banca fisica `j` contiene il marcatore della banca `16 − N + j`.
-- Quindi `N = 16 − (indice letto nella banca 0)`, accettato solo se `N` è una potenza di due e tutte le 16 banche sono coerenti.
-- Dalla `N` ricava il limite dei segnali, `2N − 1`, al massimo 30.
+- With `N` distinct banks, bank `k` shares its memory with bank `k mod N`. After writing the banks in order from 0 to 15, physical bank `j` holds the marker of bank `16 − N + j`.
+- So `N = 16 − (index read in bank 0)`, accepted only if `N` is a power of two and all 16 banks are coherent.
+- `N` is then clamped by `SRAM_BANK_LIMIT`, and the signal limit `2N − 1` (at most 30) follows.
 
-Il risultato compare nel menu della diagnostica e nelle schermate di E01 ed E08. **Verificato** su emulatore con SRAM da 8, 32 e 128 KB.
+The result appears in the diagnostic menu, on the debug screen, in the event log, and on the E01, E08 and E11 screens. **Verified** on the emulator with 8, 32, 64 and 128 KB.
 
-### 4.6 Diagnostica
+### 4.6 Diagnostic
 
-SELECT premuto all'avvio apre il menu. Con A scrive in ogni banca un pattern (byte basso dell'indirizzo XOR `banca XOR $5C`) e lo rilegge subito. Dopo uno spegnimento, START rilegge lo stesso pattern. Il byte della sonda (`$AF00`) viene saltato. La diagnostica **cancella** tutti i dati salvati.
+Holding SELECT at boot opens the menu. With A it writes a pattern in every bank (low byte of the address XOR `bank XOR $5C`) and reads it back at once. After a power-off, START reads the same pattern again. The probe byte (`$AF00`) and, in bank 0, the event log region are skipped. The diagnostic **erases** all saved data.
 
-### 4.7 Il dubbio: i segnali finiscono tutti sulla stessa memoria?
+### 4.7 The doubt: do all signals end up on the same memory?
 
-**Il dubbio.** Il programma presume che la SRAM sia fatta di banche indipendenti da 8 KB: il registro a `$4000` sceglie quale banca appare in `$A000`–`$BFFF` [R2], e ogni segnale sta in una zona diversa. Ma l'header dichiara soltanto una dimensione [R3]; la flashcart può avere meno SRAM e ignorare i bit alti del registro di banca. In quel caso la banca `k` coincide con la banca `k mod N`, dove `N` è il numero di banche vere: tutte le banche puntano alla **stessa memoria fisica** ("una sola linea di memoria") e segnali e directory si scrivono l'uno sopra l'altro.
+**The doubt.** The program assumes the SRAM is made of independent banks of 8 KB: the register at `$4000` chooses which bank appears in `$A000`–`$BFFF` [R2], and each signal sits in a different place. But the header only declares a size [R3]; the flashcart may have less SRAM and ignore the high bits of the bank register. In that case bank `k` is the same as bank `k mod N`, where `N` is the number of real banks: every bank points to the **same physical memory** ("a single line of memory") and signals and directory overwrite each other.
 
-**Perché non si poteva escludere a priori.** Il codice scrive e rilegge subito, e la rilettura riesce comunque: il dato appena scritto è lì, anche se ha cancellato un altro. L'unico modo per saperlo è misurarlo. PyBoy ha sempre 128 KB distinti, quindi i test su emulatore non possono vederlo da soli.
+**Why it could not be excluded in advance.** The code writes and reads back at once, and the read-back succeeds anyway: the byte just written is there, even if it erased another one. The only way to know is to measure it. PyBoy always has 128 KB of distinct SRAM, so emulator tests cannot see it on their own.
 
-**Effetto, per numero di banche vere:**
+**Effect, by number of real banks:**
 
-| Banche vere `N` | Memoria | Cosa succede | Segnali possibili |
+| Real banks `N` | Memory | What happens | Possible signals |
 |---|---|---|---|
-| 16 | 128 KB | nessuna sovrapposizione | 30 |
-| 8 | 64 KB | le banche 8–15 sono copie delle 0–7 | 15 |
-| 4 | 32 KB | le banche 4–15 sono copie delle 0–3: un segnale oltre il settimo finirebbe sopra la directory e sugli altri | 7 |
-| 1 | 8 KB | ogni banca è la stessa: restano solo due metà, la directory e un segnale | 1 |
+| 16 | 128 KB | no overlap | 30 |
+| 8 | 64 KB | banks 8–15 are copies of banks 0–7 | 15 |
+| 4 | 32 KB | banks 4–15 are copies of banks 0–3: a signal beyond the seventh would land on the directory and on the others | 7 |
+| 1 | 8 KB | every bank is the same: only two halves remain, the directory and one signal | 1 |
 
-**Cosa è successo davvero.** Con l'header a 128 KB la sonda ha risposto `ALIAS`. Con l'header a 32 KB ha misurato 4 banche. Prima di avere il limite, la cattura di un segnale in una banca "alta" scriveva 3840 byte sopra la directory in SRAM: la directory veniva riscritta solo se il nome veniva confermato, quindi un annullamento la lasciava danneggiata. È una delle cause probabili dei nomi sbagliati e dell'E08. Non è provata come causa unica: vedi la sezione 12.
+**What really happened.** With the 128 KB header the probe answered `ALIAS`. With the 32 KB header it measured 4 banks. Before the limit existed, capturing a signal in a "high" bank wrote 3840 bytes over the directory in SRAM: the directory was rewritten only if the name was confirmed, so a cancellation left it damaged. This is one probable cause of the wrong names and of E08. It is not proven as the only cause: see section 12.
 
-**Come lo misuriamo** (sezione 4.5). All'avvio la sonda scrive un marcatore diverso in ogni banca e deduce `N` dallo schema che resta. Se lo schema non è coerente con nessun `N` (per esempio banche distinte solo in parte) assume `N = 1`, che è la scelta prudente.
+**How we measure it** (section 4.5). At boot the probe writes a different marker in every bank and deduces `N` from the pattern that remains. If the pattern is coherent with no `N` (for example banks only partly distinct) it assumes `N = 1`, the cautious choice.
 
-**Cosa abbiamo fatto:**
-- il numero massimo di segnali segue la SRAM trovata, `2 × N − 1`, al massimo 30;
-- il segnale 0 usa la seconda metà della banca 0, che prima restava vuota;
-- header selezionabile: `SRAM_SIZE_CODE` del Makefile, perché alcune flashcart decidono la SRAM dall'header [R3];
-- due copie della directory e checksum (sezione 4.3);
-- la misura è mostrata nel menu della diagnostica e sulle schermate E01 ed E08.
+**What we did:**
+- the maximum number of signals follows the SRAM found, `2 × N − 1`, at most 30;
+- signal 0 uses the second half of bank 0, which used to stay empty;
+- selectable header: `SRAM_KB` in the Makefile, because some flashcarts decide the SRAM from the header [R3];
+- two copies of the directory and a checksum (section 4.3);
+- the measurement is shown in the diagnostic menu, on the debug screen, and in the event log.
 
-**Cosa resta aperto:**
-- se la SRAM trovata diventa più piccola tra due avvii, i segnali oltre il nuovo limite non sono più raggiungibili: non c'è ancora un controllo;
-- con `N = 1` entra un solo segnale;
-- per recuperare capacità su una SRAM piccola servirebbe comprimere i segnali (sezione 13).
+**What stays open:**
+- if the SRAM found becomes smaller between two boots, signals beyond the new limit are no longer reachable: there is no check yet;
+- with `N = 1` only one signal fits;
+- to regain capacity on a small SRAM the signals would have to be compressed (section 13).
 
-## 5. Campionamento infrarosso
+### 4.8 Event log
 
-### 5.1 Il registro RP (`$FF56`)
+A persistent log of what the program did, kept in SRAM so it can be read on a PC. The format is a **reserved region**: nothing else may use it.
 
-Vedi [R1], voce `FF56 — RP`.
+Region: `$A800`–`$ABFF` of bank 0 (1024 bytes).
 
-| Bit | Funzione |
-|---|---|
-| 0 | scrittura: 1 = LED acceso |
-| 1 | lettura: 0 = sensore illuminato |
-| 6-7 | `11` abilita la lettura |
-
-Il sensore non demodula: i campioni contengono già la portante a circa 38 kHz. Per questo la riproduzione non genera la portante, ma riproduce i campioni così come sono.
-
-### 5.2 Formato
-
-Un campione per bit, 8 campioni per byte, **1 = LED acceso**. Il primo campione finisce nel bit 0 del byte. In cattura il sensore viene invertito (`cpl` su ogni byte). In riproduzione `rr b` estrae prima il bit 0.
-
-### 5.3 Temporizzazione
-
-I conti sono in **cicli macchina** (M-cycle, 4 cicli di clock). Una stima precedente confondeva i due e sbagliava di un fattore 4.
-
-| Velocità | Frequenza M-cycle | Durata M-cycle |
+| Offset | Length | Content |
 |---|---|---|
-| normale | 1,048576 MHz | 0,954 µs |
-| double speed | 2,097152 MHz | 0,477 µs |
+| 0 | 4 | signature `GBLG` (`47 42 4C 47`) |
+| 4 | 1 | write index (0 to 253) |
+| 5 | 2 | boot counter, little endian |
+| 7 | 1 | reserved |
+| 8 | 254 × 4 | entries |
 
-I conteggi dei cicli delle istruzioni vengono dalla tabella di RGBDS [R7] (1 MHz, o 2 MHz in double speed).
+Entry (4 bytes): event type, argument, boot counter low byte, boot counter high byte. The log is circular: when it is full, the oldest entries are overwritten. An entry of type 0 is empty.
 
-Per campione: cattura = `ldh a,[c]` (2) + `rra` (1) + `rra` (1) + `rr b` (2) + `nop` (1) = **7**. Riproduzione = `rr b` (2) + `ld a,RP_...` (2) + `rla` (1) + `ldh [c],a` (2) = **7**.
+| Type | Event | Argument |
+|---|---|---|
+| 1 | boot | distinct SRAM banks |
+| 2 | probe | bit 7 = SRAM kept, bits 0–6 = banks |
+| 3 | mount | primary class in the high nibble, backup class in the low nibble (0 valid, 1 unformatted, 2 damaged, 3 not checked) |
+| 4 | error | error code |
+| 5 | save | 1 card created, 2 signal saved, 3 card and signal saved, 4 signal deleted, 5 card deleted |
 
-Per byte: 8 × 7 + 9 di sovrappiù = **65**. Cattura: `ld a,b`, `cpl`, `ld [hli],a`, `ld a,h`, `cp e`, `jr nz` (4 + 5). Riproduzione: `ld a,[hli]`, `ld b,a`, `nop`, `ld a,h`, `cp e`, `jr nz` (4 + 5).
+The log is written at normal speed with the SRAM enabled only for the write, and it is never verified: a failed write must not stop the program. If the signature is missing the log is initialized.
 
-Risultati:
-- campione ogni 7 M-cycle = **3,34 µs** in double speed (6,68 µs a velocità normale);
-- 3840 byte × 65 M-cycle = 249 600 M-cycle = **119 ms** in double speed (238 ms a velocità normale);
-- un frame NEC dura circa 67 ms: entra nei 119 ms;
-- mezzo periodo della portante a 38 kHz: circa 13 µs, cioè circa 4 campioni: la risoluzione sposta ogni fronte di circa 3 µs. Un ricevitore poco tollerante potrebbe non riconoscere il segnale.
+The log keeps what the SRAM keeps. It cannot prove the SRAM persists through a channel more reliable than the SRAM itself, but it gives direct evidence: if after a power-off the log holds the entries of the previous boot, the SRAM was kept. `tools/decode_log.py` reads the log from a `.srm` file. See `DEBUG.md`.
 
-**Regola:** cattura e riproduzione devono avere la stessa cadenza. Chi modifica uno dei due cicli deve tenere uguale l'altro. Il `nop` in cattura e il `nop` per byte in riproduzione servono a questo.
+## 5. Infrared sampling
 
-### 5.4 Validazione
+### 5.1 The RP register (`$FF56`)
 
-Dopo la cattura il programma conta i byte che cambiano rispetto al precedente. Con meno di 8 variazioni segnala E03 (disturbo, non un comando).
+See [R1], entry `FF56 — RP`.
 
-### 5.5 Storia
-
-La prima versione campionava un byte per campione per circa 35 ms in double speed, meno di un frame NEC: la riproduzione non veniva riconosciuta. Con i campioni impacchettati e 119 ms la riproduzione funziona (**verificato su console**, prima delle schede).
-
-## 6. Velocità della CPU
-
-La console gira a velocità normale. Il double speed serve solo durante cattura e invio dell'IR.
-
-- `Clock_EnterNormalSpeed`: torna a velocità normale se è in double speed.
-- `Clock_EnterSignalSpeed`: porta alla velocità dell'IR, cioè `SELECTED_CPU_SPEED` (default double).
-
-Cambio di velocità: `di`, tutte le righe del joypad deselezionate, `IF` e `IE` a zero, `KEY1 = 1`, `stop` [R1]. Dopo lo `stop` la CPU si ferma per 2050 M-cycle [R1], circa 2 ms a velocità normale. Le righe del joypad sono descritte in [R4].
-
-Tutta la SRAM è usata a velocità normale. Il segnale viene catturato nel buffer in WRAM a double speed, poi copiato in SRAM a velocità normale.
-
-## 7. Gestione degli errori
-
-### 7.1 Meccanismo
-
-Una routine che può fallire restituisce in `A` un codice, `0` per il successo. Le macro in `inc/error_handling.inc`:
-
-- `Try routine`: chiama, e se `A` non è zero esce subito con lo stesso codice;
-- `Throw codice`: carica il codice ed esce;
-- `Succeed`: carica `ERROR_NONE` ed esce.
-
-`Application_Catch` mostra l'errore a schermo come `ERROR E0n`, con il rimando a questo file (`SEE TECHNICAL.MD`). `ERROR_CANCELLED` (`$FF`) non è un errore: non viene mostrato e non ha codice.
-
-### 7.2 Tabella degli errori
-
-| Codice | Costante | Nome | Cosa significa | Cosa fare |
-|---|---|---|---|---|
-| E01 | `ERROR_STORAGE_VERIFY_FAILED` | Verifica memoria fallita | Il dato scritto in SRAM (directory o segnale), riletto, è diverso. La cartuccia non ha SRAM, la SRAM è disattivata o la scrittura non riesce. | Usa una cartuccia MBC5 con SRAM. Controlla le impostazioni di salvataggio della flashcart. |
-| E02 | `ERROR_STORAGE_FULL` | Memoria piena | Tutti i posti per i segnali sono occupati (30 con 128 KB, meno con una SRAM più piccola). | Elimina un segnale con SELECT, poi registra di nuovo. |
-| E03 | `ERROR_SIGNAL_TOO_SHORT` | Segnale troppo corto | Nel campione ci sono meno di 8 variazioni: è disturbo, non un comando. | Avvicina il telecomando al sensore. Evita sole e lampade a incandescenza. Riprova. |
-| E04 | `ERROR_NAME_EMPTY` | Nome vuoto | Il nome è fatto solo di spazi. Con il nome completamente vuoto, START non dà errore: apre la conferma di annullamento. | Scrivi almeno un carattere diverso da spazio. |
-| E05 | `ERROR_NAME_IN_USE` | Nome già in uso | Esiste già una scheda con quel nome (per una scheda), o un segnale con quel nome nella stessa scheda (per un segnale). | Scegli un nome diverso. |
-| E06 | `ERROR_SIGNAL_DAMAGED` | Segnale danneggiato | Il campione salvato non ha la firma di integrità. | Elimina il segnale e registralo di nuovo. |
-| E07 | `ERROR_INVALID_SLOT` | Indice non valido | Errore interno: indice di scheda o di segnale fuori intervallo. | Riavvia. Se si ripete, segnala il problema. |
-| E08 | `ERROR_DIRECTORY_CORRUPT` | Directory danneggiata | Nessuna delle due copie della directory ha il checksum giusto, almeno una ha la firma e contiene schede. Il programma la riformatta e le schede vanno perse. Se la directory danneggiata era vuota, la riparazione è silenziosa. | Esegui la diagnostica SRAM (README) per capire se la flashcart conserva i dati. |
-| E09 | `ERROR_CARD_LIST_FULL` | Troppe schede | Ci sono già 32 schede. | Elimina una scheda con SELECT, poi creane una nuova. |
-| E10 | `ERROR_CARD_FULL` | Scheda piena | La scheda ha già 8 segnali. | Elimina un segnale della scheda o usa un'altra scheda. |
-
-### 7.3 Le righe della SRAM su E01 ed E08
-
-Sotto il codice, sulle schermate di E01 ed E08, il programma mostra due righe misurate all'avvio dalla sonda (sezione 4.5):
-
-| Riga | Significato |
+| Bit | Function |
 |---|---|
-| `SRAM BANKS: 16/16` | Le 16 banche sono distinte: la SRAM è davvero da 128 KB. |
-| `SRAM BANKS: 4/16` (o 1, 2, 8) | La SRAM è più piccola di 128 KB: le banche si sovrappongono (sezione 4.7). Il programma limita da solo i segnali alla memoria trovata. Prova anche la variante con l'header allineato (README). |
-| `SRAM KEPT: YES` | I marcatori scritti all'avvio precedente c'erano ancora: la SRAM è stata conservata tra due avvii. |
-| `SRAM KEPT: NO` | I marcatori non c'erano, o non formavano uno schema coerente: primo avvio, oppure la scheda ha ripristinato un vecchio salvataggio, oppure non ha mai salvato la SRAM. |
+| 0 | write: 1 = LED on |
+| 1 | read: 0 = sensor lit |
+| 6-7 | `11` enables reading |
 
-Con `KEPT: YES` e l'E08 che si ripete, il difetto non è nella conservazione della SRAM.
+The sensor does not demodulate: the samples already contain the carrier at about 38 kHz. For this reason replay does not generate the carrier but plays the samples back as they are.
 
-Le stesse due righe, `SRAM BANKS` e `SRAM KEPT`, compaiono nel menu della diagnostica (SELECT premuto all'avvio), senza bisogno di un errore.
+### 5.2 Format
 
-## 8. Interfaccia
+One sample per bit, 8 samples per byte, **1 = LED on**. The first sample ends in bit 0 of the byte. On capture the sensor is inverted (`cpl` on every byte). On replay `rr b` extracts bit 0 first.
 
-- **Testo:** font 5×7 in tessere 8×8, 46 glifi (maiuscole, cifre, `= ? . - : > ! _ /`). Le righe sono in 1 bit per pixel in ROM e vengono espanse a 2 bit al caricamento. Le stringhe usano un `CHARMAP` di RGBDS e finiscono con `$FF`.
-- **Scrittura in VRAM:** solo a LCD spento o nel VBlank. Il cursore delle liste si aggiorna nel VBlank (meno di circa 1140 M-cycle disponibili); quando la lista scorre, la schermata si ridisegna a LCD spento.
-- **Lista a scorrimento:** 14 righe visibili. La colonna del cursore appartiene alla lista: nessuna schermata deve scrivere lì.
-- **Dialoghi:** un descrittore di 13 byte in ROM (domanda, riga di dettaglio, due avvisi, due righe di legenda, origine del nome da mostrare). `confirm_dialog` lo copia in WRAM e lo mostra. Una nuova conferma è un nuovo descrittore, non una nuova routine.
-- **Tastiera:** 4 righe × 10 colonne. La riga dei numeri sta sopra le lettere (QWERTY). Il tasto spazio è l'ultimo.
-- **Temi:** quattro palette (normale, ricezione, allarme, invio) scelte in `Theme_Apply`.
-- **Contatore:** sulla lista delle schede, nella riga del titolo, `SIGNALS usati/limite`: i segnali in uso e il limite calcolato dalla SRAM trovata.
+### 5.3 Timing
+
+All counts are in **machine cycles** (M-cycles, 4 clock cycles). An earlier estimate confused the two and was wrong by a factor of 4.
+
+| Speed | M-cycle rate | M-cycle duration |
+|---|---|---|
+| normal | 1.048576 MHz | 0.954 µs |
+| double speed | 2.097152 MHz | 0.477 µs |
+
+Instruction cycle counts come from the RGBDS table [R7] (1 MHz, or 2 MHz in double speed).
+
+Per sample: capture = `ldh a,[c]` (2) + `rra` (1) + `rra` (1) + `rr b` (2) + `nop` (1) = **7**. Replay = `rr b` (2) + `ld a,RP_...` (2) + `rla` (1) + `ldh [c],a` (2) = **7**.
+
+Per byte: 8 × 7 + 9 of overhead = **65**. Capture: `ld a,b`, `cpl`, `ld [hli],a`, `ld a,h`, `cp e`, `jr nz` (4 + 5). Replay: `ld a,[hli]`, `ld b,a`, `nop`, `ld a,h`, `cp e`, `jr nz` (4 + 5).
+
+Results:
+- one sample every 7 M-cycles = **3.34 µs** at double speed (6.68 µs at normal speed);
+- 3840 bytes × 65 M-cycles = 249,600 M-cycles = **119 ms** at double speed (238 ms at normal speed);
+- an NEC frame lasts about 67 ms: it fits in the 119 ms;
+- half period of a 38 kHz carrier: about 13 µs, that is about 4 samples: the resolution moves every edge by about 3 µs. A receiver with little tolerance might not recognize the signal.
+
+**Rule:** capture and replay must have the same cadence. Whoever changes one loop must keep the other equal. The `nop` in capture and the per-byte `nop` in replay exist for this.
+
+### 5.4 Validation
+
+After capture the program counts the bytes that differ from the previous one. With fewer than 8 changes it reports E03 (noise, not a command).
+
+### 5.5 History
+
+The first version sampled one byte per sample for about 35 ms at double speed, less than an NEC frame: replay was not recognized. With packed samples and 119 ms replay works (**verified on a console**, before the cards feature).
+
+## 6. CPU speed
+
+The console runs at normal speed. Double speed is used only while capturing and sending infrared.
+
+- `Clock_EnterNormalSpeed`: goes back to normal speed if it is in double speed.
+- `Clock_EnterSignalSpeed`: goes to the infrared speed, that is `SELECTED_CPU_SPEED` (default double).
+
+Speed switch: `di`, all joypad lines deselected, `IF` and `IE` cleared, `KEY1` written with bit 0 set, `stop` [R1]. After `stop` the CPU halts for 2050 M-cycles [R1], about 2 ms at normal speed. The joypad lines are described in [R4].
+
+The write to `KEY1` keeps bit 7 (current speed) as read. On real hardware bit 7 is read-only and ignored on write [R1]. PyBoy 2.9.0 replaces the whole register on a write, which cleared bit 7 and made the program read a stale speed after switching back; keeping bit 7 makes both behave the same.
+
+All SRAM access happens at normal speed. The signal is captured in the WRAM buffer at double speed and then copied into SRAM at normal speed.
+
+## 7. Error handling
+
+### 7.1 Mechanism
+
+A routine that can fail returns a code in `A`, `0` for success. The macros in `inc/error_handling.inc`:
+
+- `Try routine`: calls it, and if `A` is not zero returns at once with the same code;
+- `Throw code`: loads the code and returns;
+- `Succeed`: loads `ERROR_NONE` and returns.
+
+`Application_Catch` records the error in the event log and shows it on screen as `ERROR Enn`, with a message in words and a pointer to this file (`SEE TECHNICAL.MD`). `ERROR_CANCELLED` (`$FF`) is not an error: it is not shown and has no code.
+
+### 7.2 Error table
+
+| Code | Constant | Name | What it means | What to do |
+|---|---|---|---|---|
+| E01 | `ERROR_DIRECTORY_VERIFY_FAILED` | Directory write not verified | The directory written to SRAM, read back, is different. The cartridge has no SRAM, the SRAM is disabled, or the write fails. | Use an MBC5 cartridge with SRAM. Check the flashcart save settings. |
+| E02 | `ERROR_STORAGE_FULL` | Storage full | Every signal slot is used (30 with 128 KB, fewer with a smaller SRAM). | Delete a signal with SELECT, then record again. |
+| E03 | `ERROR_SIGNAL_TOO_SHORT` | Signal too short | The sample has fewer than 8 changes: it is noise, not a command. | Move the remote closer to the sensor. Avoid sunlight and incandescent lamps. Retry. |
+| E04 | `ERROR_NAME_EMPTY` | Empty name | The name is made only of spaces. With a completely empty name START gives no error: it opens the cancellation confirmation. | Type at least one character that is not a space. |
+| E05 | `ERROR_CARD_NAME_IN_USE` | Card name in use | A card with that name already exists. | Choose a different name. |
+| E06 | `ERROR_SIGNAL_DAMAGED` | Signal damaged | The saved sample has no integrity signature. | Delete the signal and record it again. |
+| E07 | `ERROR_INVALID_CARD` | Invalid card index | Internal error: card index out of range. | Restart. If it repeats, report the problem. |
+| E08 | `ERROR_DIRECTORY_CORRUPT` | Directory damaged | Neither directory copy has the right checksum, and at least one has the signature and holds cards. The program reformats it and the cards are lost. If the damaged directory was empty the repair is silent. | Run the SRAM diagnostic (README) to see whether the flashcart keeps data. |
+| E09 | `ERROR_CARD_LIST_FULL` | Too many cards | There are already 32 cards. | Delete a card with SELECT, then create a new one. |
+| E10 | `ERROR_CARD_FULL` | Card full | The card already has 8 signals. | Delete a signal of the card or use another card. |
+| E11 | `ERROR_SAMPLE_VERIFY_FAILED` | Signal write not verified | The signal written to SRAM, read back, is different. | Same as E01. Check the SRAM size with the probe lines. |
+| E12 | `ERROR_INVALID_SIGNAL` | Invalid signal index | Internal error: signal index out of range. | Restart. If it repeats, report the problem. |
+| E13 | `ERROR_SIGNAL_NAME_IN_USE` | Signal name in use | A signal with that name already exists in the same card. | Choose a different name. |
+
+E05, E13 and E04 appear under the name field instead of on the error screen.
+
+Messages in words on the error screen:
+
+| Code | Lines shown |
+|---|---|
+| E01 | `SRAM WRITE FAILED` / `THE DIRECTORY WAS` / `NOT SAVED` |
+| E02 | `ALL nn SIGNAL SLOTS` / `ARE IN USE` / `SRAM BANKS: nn/16` (`nn` is the limit and the banks measured) |
+| E03 | `SIGNAL TOO SHORT` / `MOVE THE REMOTE` / `CLOSER AND RETRY` |
+| E06 | `SIGNAL IS DAMAGED` / `DELETE IT AND` / `RECORD IT AGAIN` |
+| E07, E12 | `CARD NOT FOUND` or `SIGNAL NOT FOUND` / `RESTART THE` / `PROGRAM` |
+| E08 | `DIRECTORY DAMAGED` / `THE CARDS WERE LOST` |
+| E09 | `TOO MANY CARDS` / `32 CARDS AT MOST` / `DELETE ONE FIRST` |
+| E10 | `THE CARD IS FULL` / `8 SIGNALS AT MOST` / `DELETE ONE FIRST` |
+| E11 | `SRAM WRITE FAILED` / `THE SIGNAL WAS` / `NOT SAVED` |
+
+### 7.3 The SRAM lines on E01, E08 and E11
+
+Under the code, on the E01, E08 and E11 screens, the program shows two lines measured at boot by the probe (section 4.5):
+
+| Line | Meaning |
+|---|---|
+| `SRAM BANKS: 16/16` | The 16 banks are distinct: the SRAM really is 128 KB. |
+| `SRAM BANKS: 4/16` (or 1, 2, 8) | The SRAM is smaller than 128 KB: the banks overlap (section 4.7). The program limits the signals to the memory found. Also try the variant with the aligned header (README). |
+| `SRAM KEPT: YES` | The markers written at the previous boot were still there: the SRAM was kept between two boots. |
+| `SRAM KEPT: NO` | The markers were not there, or did not form a coherent pattern: first boot, or the flashcart restored an old save, or it never saved the SRAM. |
+
+With `KEPT: YES` and E08 repeating, the defect is not in how the SRAM is kept.
+
+The same two lines, `SRAM BANKS` and `SRAM KEPT`, appear in the diagnostic menu (SELECT held at boot) with no error needed.
+
+## 8. User interface
+
+- **Text:** 5×7 font in 8×8 tiles, 46 glyphs (capitals, digits, `= ? . - : > ! _ /`). Rows are stored at 1 bit per pixel in ROM and expanded to 2 bits at load time. Strings use an RGBDS `CHARMAP` and end with `$FF`.
+- **VRAM writes:** only with the LCD off or in VBlank. The list cursor is updated in VBlank (fewer than about 1140 M-cycles available); when the list scrolls, the screen is redrawn with the LCD off.
+- **Scrolling list:** 14 visible rows. The cursor column belongs to the list: no screen may write there.
+- **Dialogs:** a 13-byte descriptor in ROM (question, detail line, two warnings, two legend lines, source of the name to show). `confirm_dialog` copies it to WRAM and shows it. A new confirmation is a new descriptor, not a new routine.
+- **Keyboard:** 4 rows × 10 columns. The number row sits above the letters (QWERTY). The space key is the last one.
+- **Themes:** four palettes (normal, reception, alert, sending) chosen in `Theme_Apply`.
+- **Counter:** on the card list, in the title row, `SIGNALS used/limit`: the signals in use and the limit computed from the SRAM found.
+- **Debug screen:** only in the debug build, opened with B on the card list. See `DEBUG.md`.
 
 ## 9. Audio
 
-Canale 1 (onda quadra), registri `NR10`–`NR14`, controllo generale `NR50`–`NR52` [R5]. Melodia di successo: C5, E5, G5, C6. Melodia di eliminazione: G5, E5, C5, discendente. La durata si conta in frame (attesa del VBlank). I valori dei registri di frequenza (`2048 − 131072 / f`) sono in `inc/audio_notes.inc`.
+Channel 1 (square wave), registers `NR10`–`NR14`, master control `NR50`–`NR52` [R5]. Success melody: C5, E5, G5, C6. Deletion melody: G5, E5, C5, descending. Duration is counted in frames (waiting for VBlank). The frequency register values (`2048 − 131072 / f`) are in `inc/audio_notes.inc`.
 
 ## 10. Build
 
-Serve RGBDS 1.0 o successivo.
+RGBDS 1.0 or later is required.
 
-| Comando | Risultato |
+| Command | Result |
 |---|---|
 | `make` | `build/gbc-remote.gbc` |
-| `make test` | build dei test ed esecuzione di tutta la suite |
-| `make coverage` | esegue le suite con la misura della copertura e rigenera `docs/COVERAGE.md` e i badge |
-| `make RGBDS_DIR=/percorso/` | usa RGBDS non nel `PATH` |
-| `make BUILD_DIR=build/sram-32kb SRAM_SIZE_CODE=0x03` | variante con header a 32 KB |
-| `make BUILD_DIR=build/sram-8kb SRAM_SIZE_CODE=0x02` | variante con header a 8 KB |
-| `make CPU_SPEED=0 BUILD_DIR=...` | IR a velocità normale (solo per prova) |
+| `make SRAM_KB=32` | `build/sram-32kb/gbc-remote.gbc`, header and bank ceiling for 32 KB. Values: 8, 32, 64, 128 |
+| `make DEBUG=1` | `build/debug/gbc-remote.gbc`, with the debug screen. Combines with `SRAM_KB` |
+| `make test` | builds and runs the whole suite (unit, flow, debug flow, SRAM sizes, tools) |
+| `make coverage` | runs the suites with coverage measurement and regenerates `docs/COVERAGE.md` and the badges |
+| `make RGBDS_DIR=/path/` | uses an RGBDS that is not in the `PATH` |
+| `make CPU_SPEED=0` | infrared at normal speed (experiment only) |
 
-## 11. Test
+Build flags are passed to RGBDS as `-D`: `SRAM_BANK_LIMIT`, `DEBUG_BUILD`, `SELECTED_CPU_SPEED`. Every variant has its own build directory, so no stale object is ever reused.
 
-`make test` esegue due livelli, entrambi su PyBoy senza finestra.
+## 11. Tests
 
-**Unit test** (`tests/cases/`, 41) [R9]: una ROM di test linka le routine vere. Ogni test restituisce `0` se passa, altrimenti il numero dell'asserzione. Il runner (`tests/run_tests.py`) trova i test dal file `.sym`, esegue la ROM fino al marcatore di fine e legge i risultati dalla WRAM. Un test mai eseguito risulta fallito.
+`make test` runs five levels, all on PyBoy without a window [R9] except the tool tests.
 
-**Test di flusso** (`tests/run_flow_tests.py`, 14): avviano il ROM vero, premono i tasti e leggono la mappa dello sfondo. Il sensore IR è simulato con hook (`tests/flow_harness.py`):
+**Unit tests** (`tests/cases/`, 50) [R9]: a test ROM links the real routines. Every test returns `0` if it passes, otherwise the number of the failed assertion. The runner (`tests/run_tests.py`) finds the tests from the `.sym` file, runs the ROM until the end marker, and reads the results from WRAM. A test that never ran counts as failed.
 
-- all'inizio di `Infrared_IsSignalDetected` forza "luce rilevata";
-- in ognuna delle 8 copie del ciclo di cattura forza il valore letto;
-- in ognuna delle 8 copie del ciclo di invio registra il livello scritto, per confrontare l'invio con la registrazione.
+**Flow tests** (`tests/run_flow_tests.py`, 19): start the real ROM, press the keys, and read the background map. The infrared sensor is simulated with hooks (`tests/flow_harness.py`):
 
-L'harness può anche preparare la SRAM prima dell'avvio (`ram_patches`) per simulare dati vecchi o danneggiati.
+- at the start of `Infrared_IsSignalDetected` it forces "light detected";
+- in each of the 8 copies of the capture loop it forces the value read;
+- in each of the 8 copies of the send loop it records the level written, to compare sending with recording.
 
-**Limiti della suite:** PyBoy non emula il sensore IR, non emula le flashcart e ha sempre 128 KB di SRAM distinti. Il rilevamento delle banche sovrapposte è provato con schemi sintetici e con header a 8 e 32 KB, non con una vera scheda.
+The harness can also prepare the SRAM before boot (`ram_patches`) to simulate old or damaged data, and can read the save file after a power cycle.
 
-Per aggiungere un test: una routine in `tests/cases/`, registrata in `tests/framework/test_table.asm` con `RegisterTest`. Per un flusso: una funzione `scenario_...` in `tests/run_flow_tests.py`, aggiunta a `SCENARIOS`.
+**Debug flow tests** (`--debug`, 4): run on the debug build and check the debug screen: boot counter, speed, SRAM banks, usage, directory bytes, copy status, last error, and the signals per card.
 
-## 12. Cosa abbiamo scoperto sull'hardware
+**SRAM size tests** (`tests/run_size_tests.py`, 4): build the ROM for 8, 32, 64 and 128 KB, boot it, and check the banks measured and the signal limit.
 
-Cronologia dei fatti, con il loro stato.
+**Tool tests** (`tests/run_tool_tests.py`, 7): check the event log decoder on synthetic images (wrong signature, chronological order, wrap-around, 16-bit counter, descriptions).
 
-1. **Cattura troppo corta** (verificato su console). La prima cattura durava circa 35 ms: la riproduzione non veniva riconosciuta. Con i campioni impacchettati, 119 ms, la riproduzione funziona.
-2. **Errore di unità** (corretto). Alcune stime iniziali contavano M-cycle come cicli di clock, sbagliando i tempi di un fattore 4. Ora tutto è in M-cycle.
-3. **Salvataggio non conservato** (verificato su console). Dopo lo spegnimento comparivano nomi sbagliati ed E08.
-4. **SRAM più piccola del dichiarato** (verificato su console). Con l'header a 128 KB la sonda ha risposto `ALIAS`: le banche si sovrapponevano. Con l'header a 32 KB: `SRAM BANKS: 04/16`, cioè 32 KB. Con le banche sovrapposte il programma sovrascriveva la propria directory.
-5. **La scheda è un EverDrive GB** (verificato dai file). `GBOS.GB` ha nell'intestazione `KRKZ` (Krikzz). Il menu contiene `Load And Start`, `Load Only`, `RAM Size:`, `Save RAM:`, `Copy File To SRAM`, `Copy SRAM To File`, e i salvataggi vanno in `/EDGB/SAVE` come file `.srm`. Sulla scheda è scritto "EverDrive GB MAX"; il venditore la presenta come "Game Flash GB PRO (OS V4)". Non esiste un manuale.
-6. **Il `.srm` estratto** (verificato) conteneva due schede ("1", "2") e un segnale ("QWERTY"), quindi la scheda salva davvero. Ma era un salvataggio vecchio: mancavano i marcatori della sonda scritti dalle versioni recenti. Il checksum calcolato era `0xF5` e quello salvato `0x75`: differenza `0x80`, un byte `0x80` nella voce del segnale 2 dove doveva esserci `0`. **Ignoto** se l'ha scritto il programma o un bit sbagliato della scheda.
-7. **Ipotesi sul ciclo di E08** (non provata). `Load And Start` ricarica il `.srm` nella SRAM a ogni avvio. Se le scritture della sessione prima non sono mai state copiate nel `.srm`, il programma ritrova i dati vecchi. La procedura consigliata è copiare la SRAM nel file prima di rilanciare: vedi `README.md`.
-8. **Dopo le due copie della directory e la procedura con il menu della scheda** (verificato su console) l'E08 non compare più. **Non sappiamo** se i dati restano davvero dopo lo spegnimento: da verificare.
+**Limits of the suite:** PyBoy does not emulate the infrared sensor, does not emulate flashcarts, and always has 128 KB of distinct SRAM. Overlapping banks are proven with synthetic patterns and with headers for 8, 32 and 64 KB, not with a real card.
 
-Per rileggere il `.srm`: i primi 4 byte sono la firma, poi le voci come in 4.3. I file estratti sono in `../file-scheda/`.
+To add a test: a routine in `tests/cases/`, registered in `tests/framework/test_table.asm` with `RegisterTest`. For a flow: a `scenario_...` function in `tests/run_flow_tests.py`, added to `SCENARIOS` (or to `DEBUG_SCENARIOS`).
 
-## 13. Limiti e prossimi passi
+## 12. What we discovered about the hardware
 
-- **Mai verificato su console:** il funzionamento completo delle schede e la persistenza dopo lo spegnimento.
-- **Capacità bassa con 32 KB:** 7 segnali in totale. Una compressione dei segnali (durate di impulsi e pause più il periodo della portante, circa 150 byte invece di 3840) darebbe centinaia di segnali. La cattura resterebbe grezza e la riproduzione userebbe lo stesso ciclo: la compressione si farebbe a velocità normale dopo la cattura, e la decompressione prima dell'invio. Il rischio è nell'analisi di segnali reali e rumorosi.
-- **Segnali oltre il limite:** se la SRAM trovata diventa più piccola tra due avvii, i segnali nelle metà oltre il limite non sono più raggiungibili. Non c'è ancora un controllo.
-- **Misura della portante:** la frequenza non è misurata; senza analizzatore logico la temporizzazione si valida solo per simmetria e con le prove su console.
-- **Metadati del campione:** il segnale non salva il periodo della portante né la velocità a cui è stato catturato.
+A chronology of the facts and their status.
 
-## 14. Hardware usato per le prove
+1. **Capture too short** (verified on a console). The first capture lasted about 35 ms: replay was not recognized. With packed samples, 119 ms, replay works.
+2. **Unit mistake** (fixed). Some early estimates counted M-cycles as clock cycles, getting times wrong by a factor of 4. Everything is now in M-cycles.
+3. **Save not kept** (verified on a console). After a power-off wrong names and E08 appeared.
+4. **SRAM smaller than declared** (verified on a console). With the 128 KB header the probe answered `ALIAS`: the banks overlapped. With the 32 KB header: `SRAM BANKS: 04/16`, that is 32 KB. With overlapping banks the program overwrote its own directory.
+5. **The card is an EverDrive GB** (verified from the files). `GBOS.GB` has `KRKZ` (Krikzz) in its header. The menu contains `Load And Start`, `Load Only`, `RAM Size:`, `Save RAM:`, `Copy File To SRAM`, `Copy SRAM To File`, and saves go to `/EDGB/SAVE` as `.srm` files. The card says "EverDrive GB MAX"; the seller presents it as "Game Flash GB PRO (OS V4)". There is no manual.
+6. **The extracted `.srm`** (verified) held two cards ("1", "2") and one signal ("QWERTY"), so the card does save. But it was an old save: the probe markers written by recent versions were missing. The computed checksum was `0xF5` and the stored one `0x75`: a difference of `0x80`, one byte `0x80` in the entry of signal 2 where there should have been `0`. **Unknown** whether the program or a flipped bit on the card wrote it.
+7. **Hypothesis on the E08 cycle** (not proven). `Load And Start` reloads the `.srm` into the SRAM at every boot. If the writes of the previous session were never copied into the `.srm`, the program finds the old data again. The recommended procedure is to copy the SRAM into the file before relaunching: see `README.md`.
+8. **After the two directory copies and the procedure with the card menu** (verified on a console) E08 no longer appears. **We do not know** whether the data really survives a power-off: to be verified. The event log (section 4.8) is meant to answer exactly this.
+9. **PyBoy `KEY1` write** (verified). PyBoy 2.9.0 replaces the whole `KEY1` register on a write, losing bit 7. The program now preserves bit 7 (section 6). This is an emulator quirk; the original code was correct for real hardware [R1].
 
-Elenco di tutto l'hardware su cui questo codice è stato provato. Va aggiornato ogni volta che si prova un nuovo dispositivo.
+To reread the `.srm`: the first 4 bytes are the signature, then the entries as in 4.3. The extracted files are in `../file-scheda/`.
 
-### Flashcart
+## 13. Limits and next steps
 
-| # | Dispositivo | Come identificato | Configurazioni provate | Esito |
+- **Never verified on a console:** the full operation of the cards feature, the debug build, the event log, and persistence after a power-off.
+- **Low capacity with 32 KB:** 7 signals in total. Compressing the signals (durations of pulses and gaps plus the carrier period, about 150 bytes instead of 3840) would give hundreds of signals. Capture would stay raw and replay would use the same loop: compression would run at normal speed after capture, and decompression before sending. The risk is in analysing real, noisy signals.
+- **Signals beyond the limit:** if the SRAM found becomes smaller between two boots, the signals in halves beyond the limit are no longer reachable. There is no check yet.
+- **Carrier measurement:** the frequency is not measured; without a logic analyzer timing is validated only by symmetry and by tests on a console.
+- **Sample metadata:** the signal does not store the carrier period or the speed it was captured at.
+- **Event log:** it is as reliable as the SRAM. It has no checksum, and a write that fails is silent.
+
+## 14. Hardware used for testing
+
+A list of all the hardware this code was tried on. It must be updated every time a new device is tried.
+
+### Flashcarts
+
+| # | Device | How identified | Configurations tried | Result |
 |---|---|---|---|---|
-| 1 | Flashcart venduta come "Game Flash GB PRO (Bitfunx), OS V4" [N1]. Sulla scheda è scritto "EverDrive GB MAX". | `GBOS.GB` ha nell'intestazione `KRKZ`: è il sistema EverDrive GB di Krikzz (sezione 12). | Header SRAM 128 KB: la sonda ha risposto `ALIAS`. Header SRAM 32 KB: 4 banche. | Registrazione, nome e riproduzione funzionano. Con le schede: nessun errore all'avvio. Conservazione dopo lo spegnimento: da verificare. |
+| 1 | Flashcart sold as "Game Flash GB PRO (Bitfunx), OS V4" [N1]. The card says "EverDrive GB MAX". | `GBOS.GB` has `KRKZ` in its header: it is the Krikzz EverDrive GB system (section 12). | SRAM header 128 KB: the probe answered `ALIAS`. SRAM header 32 KB: 4 banks. | Recording, naming and replay work. With the cards feature: no error at boot. Persistence after a power-off: to be verified. |
 
-Per ora c'è una sola flashcart. Nessun'altra scheda è stata provata.
+There is only one flashcart so far. No other card has been tried.
 
-### Altro hardware e strumenti
+### Other hardware and tools
 
-| Voce | Dettaglio |
+| Item | Detail |
 |---|---|
-| Console | Game Boy Color (modello non registrato) |
-| Telecomando | non identificato (segnale di accensione) |
-| microSD | contiene `/EDGB/SAVE/gbc-remote.srm` (32 KB) e la cartella `System Volume Information` (FAT). I file estratti sono in `../file-scheda/`. |
-| Emulatore | PyBoy 2.9.0 [R9], Python 3.13.5, senza finestra |
+| Console | Game Boy Color (model not recorded) |
+| Remote | not identified (power-on signal) |
+| microSD | holds `/EDGB/SAVE/gbc-remote.srm` (32 KB) and the `System Volume Information` folder (FAT). The extracted files are in `../file-scheda/`. |
+| Emulator | PyBoy 2.9.0 [R9], Python 3.13.5, no window |
 | Assembler | RGBDS 1.0.4 [R6][R8] |
-| Strumenti di misura | nessuno (niente analizzatore logico né oscilloscopio) |
+| Measuring tools | none (no logic analyzer, no oscilloscope) |
 
-## 15. Copertura dei test
+## 15. Test coverage
 
-`make coverage` esegue le due suite con un aggancio su ogni etichetta del codice e genera:
+`make coverage` runs the suites with a hook on every label of the code and generates:
 
-- `docs/COVERAGE.md`: percentuale totale, per suite, per modulo e l'elenco delle etichette non raggiunte;
-- `docs/badges/*.svg`: i badge mostrati in testa al README (copertura delle etichette, unit test, test di flusso, piattaforma, stato dell'hardware).
+- `docs/COVERAGE.md`: total percentage, per suite, per module, and the list of labels not reached;
+- `docs/badges/*.svg`: the badges shown at the top of the README (label coverage, unit tests, flow tests, debug tests, platform, hardware status).
 
-**Cosa misura.** Un'etichetta (routine o punto di diramazione) conta come coperta se il programma ci arriva almeno una volta durante i test. È una copertura approssimata dei blocchi di codice, **non** di riga e non dei valori dei dati.
+**What it measures.** A label (routine or branch target) counts as covered if the program reaches it at least once during the tests. It is an approximate coverage of code blocks, **not** line coverage and not coverage of data values. The labels come from the debug build, which holds every label of the normal build plus the debug screen. Hits come from the unit tests, the flow tests on the normal ROM, and the flow tests on the debug ROM.
 
-**Cosa esclude.** Le tabelle in `src/data/`, l'intestazione del ROM e tutto il codice di test.
+**What it excludes.** The tables in `src/data/`, the ROM header, and all test code.
 
-**Limiti.**
-- Misura quello che i test eseguono su emulatore, non quello che gira su console.
-- I punti raggiunti solo dai simulatori del sensore IR sono contati come coperti quando l'aggancio del simulatore scatta.
-- Una percentuale alta non dimostra che i test controllino abbastanza: indica solo che il codice viene eseguito.
-- Al momento della scrittura l'unica etichetta non raggiunta è `Storage_Mount.reformatFailed`: richiede che la scrittura in SRAM fallisca durante la riformattazione, e l'emulatore non lo fa. L'elenco aggiornato è in `docs/COVERAGE.md`.
-- Il dettaglio dell'aggancio: l'etichetta si aggancia con `hook_register` di PyBoy [R9] e l'aggancio viene tolto dopo il primo passaggio. La rimozione avviene dopo ogni avanzamento dell'emulatore, non dentro la funzione di aggancio, perché lì PyBoy segnala un errore e rallenta l'esecuzione di molto.
+**Limits.**
+- It measures what the tests run on the emulator, not what runs on a console.
+- Points reached only by the infrared sensor simulators are counted as covered when the simulator hook fires.
+- A high percentage does not prove the tests check enough: it only means the code is executed.
+- At the time of writing the only label not reached is `Storage_Mount.reformatFailed`: it needs an SRAM write to fail during the reformat, and the emulator does not do that. The up-to-date list is in `docs/COVERAGE.md`.
+- How the hook works: each label is hooked with PyBoy's `hook_register` [R9] and the hook is removed after the first hit. The removal happens after every emulator step, not inside the hook callback, because there PyBoy raises an error and slows execution a lot.
 
-## 16. Riferimenti
+## 16. References
 
-Fonti ufficiali, consultate il 15/11/2026 (pagina aperta e contenuto controllato):
+Official sources, consulted on 11/15/2026 (page opened and content checked):
 
-- **[R1]** Pan Docs, *CGB Registers*: `KEY1` (`$FF4D`, cambio di velocità, la CPU si ferma 2050 M-cycle dopo `stop`) e `RP` (`$FF56`, porta a infrarossi). <https://gbdev.io/pandocs/CGB_Registers.html>
-- **[R2]** Pan Docs, *MBC5*: abilitazione RAM `$0000`–`$1FFF` (`$0A`), numero di banca RAM `$4000`–`$5FFF` (`$00`–`$0F`). <https://gbdev.io/pandocs/MBC5.html>
-- **[R3]** Pan Docs, *The Cartridge Header*: flag CGB `$0143`, tipo `$0147`, dimensione ROM `$0148`, dimensione RAM `$0149`. <https://gbdev.io/pandocs/The_Cartridge_Header.html>
-- **[R4]** Pan Docs, *Joypad Input*: registro `P1/JOYP` (`$FF00`). <https://gbdev.io/pandocs/Joypad_Input.html>
+- **[R1]** Pan Docs, *CGB Registers*: `KEY1` (`$FF4D`, speed switch, the CPU halts 2050 M-cycles after `stop`) and `RP` (`$FF56`, infrared port). <https://gbdev.io/pandocs/CGB_Registers.html>
+- **[R2]** Pan Docs, *MBC5*: RAM enable `$0000`–`$1FFF` (`$0A`), RAM bank number `$4000`–`$5FFF` (`$00`–`$0F`). <https://gbdev.io/pandocs/MBC5.html>
+- **[R3]** Pan Docs, *The Cartridge Header*: CGB flag `$0143`, type `$0147`, ROM size `$0148`, RAM size `$0149`. <https://gbdev.io/pandocs/The_Cartridge_Header.html>
+- **[R4]** Pan Docs, *Joypad Input*: register `P1/JOYP` (`$FF00`). <https://gbdev.io/pandocs/Joypad_Input.html>
 - **[R5]** Pan Docs, *Audio Registers*: `NR10`–`NR14`, `NR50`–`NR52`. <https://gbdev.io/pandocs/Audio_Registers.html>
-- **[R6]** RGBDS, *rgbasm(5)*: linguaggio assembly (`CHARMAP`, `MACRO`, `FOR`, sezioni). <https://rgbds.gbdev.io/docs/v1.0.4/rgbasm.5>
-- **[R7]** RGBDS, *gbz80(7)*: riferimento delle istruzioni con i cicli. <https://rgbds.gbdev.io/docs/v1.0.4/gbz80.7>
-- **[R8]** RGBDS, *rgbfix(1)*: opzioni `-C`, `-m`, `-r`, `-t`. <https://rgbds.gbdev.io/docs/v1.0.4/rgbfix.1>
-- **[R9]** PyBoy, documentazione e sorgenti (versione 2.9.0). <https://docs.pyboy.dk/> e <https://github.com/Baekalfen/PyBoy>
-- **[R10]** RGBDS, rilasci: <https://github.com/gbdev/rgbds/releases>
+- **[R6]** RGBDS, *rgbasm(5)*: the assembly language (`CHARMAP`, `MACRO`, `FOR`, sections). <https://rgbds.gbdev.io/docs/v1.0.4/rgbasm.5>
+- **[R7]** RGBDS, *gbz80(7)*: instruction reference with cycle counts. <https://rgbds.gbdev.io/docs/v1.0.4/gbz80.7>
+- **[R8]** RGBDS, *rgbfix(1)*: options `-C`, `-m`, `-r`, `-t`. <https://rgbds.gbdev.io/docs/v1.0.4/rgbfix.1>
+- **[R9]** PyBoy, documentation and sources (version 2.9.0). <https://docs.pyboy.dk/> and <https://github.com/Baekalfen/PyBoy>
+- **[R10]** RGBDS, releases: <https://github.com/gbdev/rgbds/releases>
 
-Fonti non ufficiali (venditori e forum), viste come risultati di ricerca e **non controllate in dettaglio**. Non esiste un manuale della scheda usata; quanto segue è indicativo:
+Unofficial sources (sellers and forums), seen as search results and **not checked in detail**. There is no manual for the card used; what follows is indicative:
 
 - **[N1]** Handheld Legend, *Game Flash GB PRO (Bitfunx)*: <https://handheldlegend.com/products/game-flash-gb-pro-bitfunx>
 - **[N2]** Retro Game Repair Shop, *Game Flash GB Pro Plus*: <https://retrogamerepairshop.com/products/game-flash-gb-pro-plus>
-- **[N3]** PicClick, annuncio *Game Flash GB PRO*: <https://picclick.com/Jeu-Flash-GB-PRO-Bitfunx-286054184684.html>
+- **[N3]** PicClick, listing *Game Flash GB PRO*: <https://picclick.com/Jeu-Flash-GB-PRO-Bitfunx-286054184684.html>
 - **[N4]** Retromodding, *Krikzz EverDrive GB X7*: <https://www.retromodding.com/collections/vendors/products/krikzz-everdrive-gb-x7>
 - **[N5]** Stone Age Gamer, *EverDrive GB X7*: <https://stoneagegamer.com/everdrive-gb-x7-base.html>
-- **[N6]** r/everdrive, *how to save state with GB X7* (copia su un mirror): <https://redlib.belloworld.it/r/everdrive/comments/1g9b2n9/how_to_save_state_with_gb_x7>
+- **[N6]** r/everdrive, *how to save state with GB X7* (copy on a mirror): <https://redlib.belloworld.it/r/everdrive/comments/1g9b2n9/how_to_save_state_with_gb_x7>
 
-Cose dedotte da file: il menu del sistema `GBOS.GB` (voci `Load And Start`, `Copy SRAM To File`, percorso `/EDGB/SAVE`) viene dall'analisi delle stringhe del file estratto dalla scheda, non da un manuale.
+Things deduced from files: the menu of the `GBOS.GB` system (entries `Load And Start`, `Copy SRAM To File`, path `/EDGB/SAVE`) comes from analysing the strings of the file extracted from the card, not from a manual.

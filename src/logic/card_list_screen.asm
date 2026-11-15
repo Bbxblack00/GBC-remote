@@ -27,6 +27,11 @@ CardListScreen_Run::
     call nz, CardListScreen_MoveDown
 
     ld a, [wJoypadPressed]
+IF DEF(DEBUG_BUILD)
+    bit JOYPAD_BIT_B, a
+    ld b, CARD_LIST_ACTION_DEBUG
+    jr nz, .leaveScreen
+ENDC
     bit JOYPAD_BIT_START, a
     ld b, CARD_LIST_ACTION_NEW
     jr nz, .leaveScreen

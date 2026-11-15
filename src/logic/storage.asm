@@ -19,6 +19,8 @@ wDirectoryBackupClass:: ds 1
 SECTION "Storage", ROM0
 
 Storage_Mount::
+    ld a, DIRECTORY_NOT_CHECKED
+    ld [wDirectoryBackupClass], a
     ld hl, SRAM_BASE_ADDRESS
     call Storage_LoadDirectoryAt
     call Storage_ClassifyMirror
@@ -162,7 +164,7 @@ Storage_FlushDirectory::
     ld a, b
     and a
     ret z
-    Throw ERROR_STORAGE_VERIFY_FAILED
+    Throw ERROR_DIRECTORY_VERIFY_FAILED
 
 Storage_WriteAndVerifyDirectoryCopy:
     push hl
@@ -300,6 +302,32 @@ Storage_CountUsedSignals::
     ld a, d
     ret
 
+Storage_ComputeDirectoryBytesInUse::
+    ld hl, DIRECTORY_SIGNATURE_LENGTH + DIRECTORY_CHECKSUM_LENGTH
+    ld a, [wUsedCardCount]
+    and a
+    jr z, .cardsCounted
+    ld de, CARD_ENTRY_SIZE_BYTES
+.addCard
+    add hl, de
+    dec a
+    jr nz, .addCard
+.cardsCounted
+    push hl
+    call Storage_CountUsedSignals
+    pop hl
+    and a
+    jr z, .signalsCounted
+    ld de, SIGNAL_ENTRY_SIZE_BYTES
+.addSignal
+    add hl, de
+    dec a
+    jr nz, .addSignal
+.signalsCounted
+    ld d, h
+    ld e, l
+    ret
+
 Storage_CheckCardHasRoom::
     ld a, [wTargetCard]
     call Storage_RebuildSignalIndex
@@ -378,7 +406,7 @@ Storage_CommitNewCard::
     ld a, [wTargetCard]
     cp CARD_COUNT_MAX
     jr c, .cardIsValid
-    Throw ERROR_INVALID_SLOT
+    Throw ERROR_INVALID_CARD
 .cardIsValid
     ld de, wNameBuffer
     call Storage_WriteCardEntry
@@ -397,12 +425,12 @@ Storage_CommitNewSignal::
     ld a, [wTargetSlot]
     cp b
     jr c, .slotIsValid
-    Throw ERROR_INVALID_SLOT
+    Throw ERROR_INVALID_SIGNAL
 .slotIsValid
     ld a, [wTargetCard]
     cp CARD_COUNT_MAX
     jr c, .cardIsValid
-    Throw ERROR_INVALID_SLOT
+    Throw ERROR_INVALID_CARD
 .cardIsValid
     ld c, a
     ld a, [wTargetSlot]
@@ -423,12 +451,12 @@ Storage_CommitNewCardWithSignal::
     ld a, [wTargetSlot]
     cp b
     jr c, .slotIsValid
-    Throw ERROR_INVALID_SLOT
+    Throw ERROR_INVALID_SIGNAL
 .slotIsValid
     ld a, [wTargetCard]
     cp CARD_COUNT_MAX
     jr c, .cardIsValid
-    Throw ERROR_INVALID_SLOT
+    Throw ERROR_INVALID_CARD
 .cardIsValid
     ld de, wPendingCardName
     call Storage_WriteCardEntry
@@ -451,7 +479,7 @@ Storage_CommitNewCardWithSignal::
 Storage_DeleteSignal::
     cp SIGNAL_SLOT_COUNT
     jr c, .slotIsValid
-    Throw ERROR_INVALID_SLOT
+    Throw ERROR_INVALID_SIGNAL
 .slotIsValid
     call Storage_ClearSignalEntry
     jp Storage_FlushDirectory
@@ -459,7 +487,7 @@ Storage_DeleteSignal::
 Storage_DeleteCard::
     cp CARD_COUNT_MAX
     jr c, .cardIsValid
-    Throw ERROR_INVALID_SLOT
+    Throw ERROR_INVALID_CARD
 .cardIsValid
     ld e, a
     ld c, 0
@@ -519,7 +547,7 @@ Storage_CheckCardNameUnused::
     jr nz, .inspectCard
     Succeed
 .nameAlreadyUsed
-    Throw ERROR_NAME_IN_USE
+    Throw ERROR_CARD_NAME_IN_USE
 
 Storage_CheckSignalNameUnused::
     ld c, 0
@@ -546,7 +574,7 @@ Storage_CheckSignalNameUnused::
     jr nz, .inspectSlot
     Succeed
 .nameAlreadyUsed
-    Throw ERROR_NAME_IN_USE
+    Throw ERROR_SIGNAL_NAME_IN_USE
 
 Storage_SelectSampleSlot::
     inc a
@@ -585,7 +613,7 @@ Storage_SaveSampleFromBuffer::
     ld a, b
     and a
     ret z
-    Throw ERROR_STORAGE_VERIFY_FAILED
+    Throw ERROR_SAMPLE_VERIFY_FAILED
 
 Storage_LoadSampleToBuffer::
     Try Storage_VerifySampleSignature

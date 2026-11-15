@@ -13,7 +13,11 @@ StringUsageLabel::
 StringUsageSeparator::
     db "/", STRING_END
 StringLegendCardsFirst::
+IF DEF(DEBUG_BUILD)
+    db "A=OPEN B=DEBUG", STRING_END
+ELSE
     db "A=OPEN", STRING_END
+ENDC
 StringLegendListFirst::
     db "A=OK B=BACK", STRING_END
 StringLegendListSecond::
@@ -105,6 +109,55 @@ StringDiagnosticAllOk::
 StringDiagnosticSomeBad::
     db "SOME BANKS BAD", STRING_END
 
+StringErrorAll::
+    db "ALL ", STRING_END
+StringErrorSignalSlots::
+    db " SIGNAL SLOTS", STRING_END
+StringErrorAreInUse::
+    db "ARE IN USE", STRING_END
+StringErrorSramWriteFailed::
+    db "SRAM WRITE FAILED", STRING_END
+StringErrorDirectoryNotSaved::
+    db "THE DIRECTORY WAS", STRING_END
+StringErrorNotSaved::
+    db "NOT SAVED", STRING_END
+StringErrorSignalNotSaved::
+    db "THE SIGNAL WAS", STRING_END
+StringErrorSignalTooShort::
+    db "SIGNAL TOO SHORT", STRING_END
+StringErrorMoveRemote::
+    db "MOVE THE REMOTE", STRING_END
+StringErrorCloserAndRetry::
+    db "CLOSER AND RETRY", STRING_END
+StringErrorSignalDamaged::
+    db "SIGNAL IS DAMAGED", STRING_END
+StringErrorDeleteItAnd::
+    db "DELETE IT AND", STRING_END
+StringErrorRecordAgain::
+    db "RECORD IT AGAIN", STRING_END
+StringErrorCardNotFound::
+    db "CARD NOT FOUND", STRING_END
+StringErrorSignalNotFound::
+    db "SIGNAL NOT FOUND", STRING_END
+StringErrorRestartProgram::
+    db "RESTART THE", STRING_END
+StringErrorProgramWord::
+    db "PROGRAM", STRING_END
+StringErrorDirectoryDamaged::
+    db "DIRECTORY DAMAGED", STRING_END
+StringErrorCardsWereLost::
+    db "THE CARDS WERE LOST", STRING_END
+StringErrorTooManyCards::
+    db "TOO MANY CARDS", STRING_END
+StringErrorCardLimit::
+    db STRFMT("%d CARDS AT MOST", CARD_COUNT_MAX), STRING_END
+StringErrorDeleteOneFirst::
+    db "DELETE ONE FIRST", STRING_END
+StringErrorCardIsFull::
+    db "THE CARD IS FULL", STRING_END
+StringErrorSignalLimit::
+    db STRFMT("%d SIGNALS AT MOST", SIGNALS_PER_CARD_MAX), STRING_END
+
 StringProbeBanksPrefix::
     db "SRAM BANKS: ", STRING_END
 StringProbeBanksSuffix::
@@ -120,3 +173,42 @@ StringErrorHint::
     db "SEE TECHNICAL.MD", STRING_END
 StringLegendError::
     db "A=OK", STRING_END
+
+IF DEF(DEBUG_BUILD)
+StringDebugTitle::
+    db "DEBUG", STRING_END
+StringDebugLegend::
+    db "A=PAGE B=BACK", STRING_END
+StringDebugBoot::
+    db "BOOT ", STRING_END
+StringDebugSpeed::
+    db "SPEED ", STRING_END
+StringDebugNormal::
+    db "NORMAL", STRING_END
+StringDebugDouble::
+    db "DOUBLE", STRING_END
+StringDebugCards::
+    db "CARDS ", STRING_END
+StringDebugDirectory::
+    db "DIR ", STRING_END
+StringDebugPrimary::
+    db "PRIMARY: ", STRING_END
+StringDebugBackup::
+    db "BACKUP: ", STRING_END
+StringDebugValid::
+    db "VALID", STRING_END
+StringDebugUnformatted::
+    db "BLANK", STRING_END
+StringDebugDamaged::
+    db "DAMAGED", STRING_END
+StringDebugNotChecked::
+    db "NOT CHECKED", STRING_END
+StringDebugLastError::
+    db "LAST ERROR: ", STRING_END
+StringDebugNone::
+    db "NONE", STRING_END
+StringDebugErrorPrefix::
+    db "E", STRING_END
+StringDebugCardsPage::
+    db "SIGNALS PER CARD", STRING_END
+ENDC

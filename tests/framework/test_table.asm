@@ -46,8 +46,19 @@ TestTable::
 
     RegisterTest Test_SramProbeReportsKeptAndFullBankCount
     RegisterTest Test_BankCountIsDetectedFromAliasedPatterns
+    RegisterTest Test_BankLimitClampsTheDetectedBanks
     RegisterTest Test_SlotLimitFollowsBankCount
     RegisterTest Test_QuietCaptureIsTooShort
     RegisterTest Test_ActiveCaptureIsAccepted
+
+    RegisterTest Test_LogInitialisationCountsBoots
+    RegisterTest Test_LogAppendStoresTheEntry
+    RegisterTest Test_LogWrapsAroundAndKeepsTheNewest
+    RegisterTest Test_LogRecordsTheMountClasses
+    RegisterTest Test_LogRegionDoesNotOverlapTheDirectory
+
+    RegisterTest Test_DecimalWordPrintsFiveDigits
+    RegisterTest Test_DecimalWordHandlesTheLimits
+    RegisterTest Test_DirectoryBytesInUseCountsEntries
 
 TestTableEnd::
