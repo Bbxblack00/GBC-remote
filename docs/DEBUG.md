@@ -118,7 +118,7 @@ If the flashcart reloads an old save at every start, the log shows `BOOT` entrie
 ## 7. Tests
 
 - **Unit tests** (`tests/cases/test_event_log.asm`): boot counting, appending an entry, wrap-around keeping the newest entries, the mount classes, and no overlap with the directory.
-- **Tool tests** (`tests/run_tool_tests.py`): the decoder on synthetic images.
+- **Tool tests** (`tests/run_tool_tests.py`): the decoder on synthetic images (the badge values are checked in the same file).
 - **Flow tests** (`tests/run_flow_tests.py`): a real run, a power cycle, and the log decoded from the save file, checking the boot counter, the save event, and the kept/not kept result. Errors are logged too.
 - **Debug flow tests** (`tests/run_flow_tests.py --debug`, on the debug ROM): the contents of both pages of the debug screen.
 

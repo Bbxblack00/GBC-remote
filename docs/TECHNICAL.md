@@ -33,6 +33,7 @@ src/lib/        generic memory helpers
 src/logic/      application logic and screens
 src/data/       tables only: font, strings, dialogs, palettes, keyboard, melodies, signatures
 tests/          assembly framework, cases, Python runners, flow harness
+.github/        the workflow that runs the tests and publishes the badges
 tools/          command-line tools (event log decoder)
 docs/           this documentation
 ```
@@ -411,7 +412,7 @@ The harness can also prepare the SRAM before boot (`ram_patches`) to simulate ol
 
 **SRAM size tests** (`tests/run_size_tests.py`, 4): build the ROM for 8, 32, 64 and 128 KB, boot it, and check the banks measured and the signal limit.
 
-**Tool tests** (`tests/run_tool_tests.py`, 7): check the event log decoder on synthetic images (wrong signature, chronological order, wrap-around, 16-bit counter, descriptions).
+**Tool tests** (`tests/run_tool_tests.py`, 10): check the event log decoder on synthetic images (wrong signature, chronological order, wrap-around, 16-bit counter, descriptions), and the badge values (coverage colors and the status text of passing and failing runs).
 
 **Limits of the suite:** PyBoy does not emulate the infrared sensor, does not emulate flashcarts, and always has 128 KB of distinct SRAM. Overlapping banks are proven with synthetic patterns and with headers for 8, 32 and 64 KB, not with a real card.
 
@@ -470,7 +471,11 @@ There is only one flashcart so far. No other card has been tried.
 `make coverage` runs the suites with a hook on every label of the code and generates:
 
 - `docs/COVERAGE.md`: total percentage, per suite, per module, and the list of labels not reached;
-- `docs/badges/*.svg`: the badges shown at the top of the README (label coverage, unit tests, flow tests, debug tests, platform, hardware status).
+- `build/coverage/summary.json`: the numbers the badges are made from (label coverage, tests passed and total for the unit, flow and debug suites).
+
+**Badges.** No badge image is stored in the repository. The workflow `.github/workflows/badges.yml` runs on every push to `Main` or `develop` (and by hand). It installs RGBDS, runs `make test` and `make coverage`, turns the summary into step outputs with `tests/badge_outputs.py`, and calls the GitHub Action *Bring Your Own Badge* [R11] once per badge: `coverage`, `unit-tests`, `flow-tests`, `debug-tests`, `platform`, `hardware-tests`. The action writes the badge data in a JSON file on the `shields` branch, and a hosted endpoint turns it into the badge shown by the README (`https://byob.yarr.is/Bbxblack00/GBC-remote/<badge name>`). Colors: green from 85% coverage, yellow-green from 70%, orange from 50%, red below; a suite is green only if every test passed. The `platform` and `hardware tests` badges are fixed values set in the workflow (`PLATFORM_STATUS`, `HARDWARE_STATUS`): `HARDWARE_STATUS` MUST be changed by hand when the hardware verification changes.
+
+The action is third party and not certified by GitHub [R11]. A push to a branch other than `Main` or `develop` does not update the badges. The workflow itself was not run yet: it is validated only as YAML, and the pieces it calls (`make test`, `make coverage`, `badge_outputs.py`) were run locally.
 
 **What it measures.** A label (routine or branch target) counts as covered if the program reaches it at least once during the tests. It is an approximate coverage of code blocks, **not** line coverage and not coverage of data values. The labels come from the debug build, which holds every label of the normal build plus the debug screen. Hits come from the unit tests, the flow tests on the normal ROM, and the flow tests on the debug ROM.
 
@@ -497,6 +502,7 @@ Official sources, consulted on 11/15/2026 (page opened and content checked):
 - **[R8]** RGBDS, *rgbfix(1)*: options `-C`, `-m`, `-r`, `-t`. <https://rgbds.gbdev.io/docs/v1.0.4/rgbfix.1>
 - **[R9]** PyBoy, documentation and sources (version 2.9.0). <https://docs.pyboy.dk/> and <https://github.com/Baekalfen/PyBoy>
 - **[R10]** RGBDS, releases: <https://github.com/gbdev/rgbds/releases>
+- **[R11]** Bring Your Own Badge (RubbaBoy/BYOB), GitHub Marketplace page and `action.yml` of version 1.3.0: inputs `name`, `label`, `icon`, `status`, `color`, `github_token`, `path`, `branch`; data stored on the `shields` branch. <https://github.com/marketplace/actions/bring-your-own-badge> and <https://github.com/RubbaBoy/BYOB>
 
 Unofficial sources (sellers and forums), seen as search results and **not checked in detail**. There is no manual for the card used; what follows is indicative:
 

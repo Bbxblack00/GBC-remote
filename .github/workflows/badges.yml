@@ -1,0 +1,104 @@
+name: Badges
+
+on:
+  push:
+    branches:
+      - Main
+      - develop
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  RGBDS_VERSION: 1.0.4
+  PLATFORM_STATUS: Game Boy Color
+  HARDWARE_STATUS: partial
+
+jobs:
+  badges:
+    runs-on: alpine-letest
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install RGBDS
+        run: |
+          curl -L -O "https://github.com/gbdev/rgbds/releases/download/v${RGBDS_VERSION}/rgbds-linux-x86_64.tar.xz"
+          mkdir -p "${RUNNER_TEMP}/rgbds"
+          tar -xJf rgbds-linux-x86_64.tar.xz -C "${RUNNER_TEMP}/rgbds"
+          echo "RGBDS_DIR=${RUNNER_TEMP}/rgbds/" >> "${GITHUB_ENV}"
+
+      - name: Install the test dependencies
+        run: |
+          python -m venv .venv
+          .venv/bin/pip install -r tests/requirements.txt
+
+      - name: Run every test
+        run: make test
+
+      - name: Measure the coverage
+        run: make coverage
+
+      - name: Read the results
+        id: results
+        run: .venv/bin/python tests/badge_outputs.py build/coverage/summary.json >> "${GITHUB_OUTPUT}"
+
+      - name: Coverage badge
+        uses: RubbaBoy/BYOB@v1.3.0
+        with:
+          NAME: coverage
+          LABEL: label coverage
+          STATUS: ${{ steps.results.outputs.coverage_status }}
+          COLOR: ${{ steps.results.outputs.coverage_color }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Unit tests badge
+        uses: RubbaBoy/BYOB@v1.3.0
+        with:
+          NAME: unit-tests
+          LABEL: unit tests
+          STATUS: ${{ steps.results.outputs.unit_status }}
+          COLOR: ${{ steps.results.outputs.unit_color }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Flow tests badge
+        uses: RubbaBoy/BYOB@v1.3.0
+        with:
+          NAME: flow-tests
+          LABEL: flow tests
+          STATUS: ${{ steps.results.outputs.flow_status }}
+          COLOR: ${{ steps.results.outputs.flow_color }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Debug tests badge
+        uses: RubbaBoy/BYOB@v1.3.0
+        with:
+          NAME: debug-tests
+          LABEL: debug tests
+          STATUS: ${{ steps.results.outputs.debug_status }}
+          COLOR: ${{ steps.results.outputs.debug_color }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Platform badge
+        uses: RubbaBoy/BYOB@v1.3.0
+        with:
+          NAME: platform
+          LABEL: platform
+          STATUS: ${{ env.PLATFORM_STATUS }}
+          COLOR: 007ec6
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Hardware tests badge
+        uses: RubbaBoy/BYOB@v1.3.0
+        with:
+          NAME: hardware-tests
+          LABEL: hardware tests
+          STATUS: ${{ env.HARDWARE_STATUS }}
+          COLOR: fe7d37
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

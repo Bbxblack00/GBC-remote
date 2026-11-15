@@ -83,7 +83,7 @@ coverage: $(TEST_ROM) $(ROM)
 	$(PYTHON) tests/run_tests.py $(TEST_ROM) $(TEST_SYMBOLS) --map $(TEST_MAP) --coverage-output $(COVERAGE_DIR)/unit.json
 	$(PYTHON) tests/run_flow_tests.py $(ROM) $(ROM_SYMBOLS) --map $(ROM_MAP) --coverage-output $(COVERAGE_DIR)/flow.json
 	$(PYTHON) tests/run_flow_tests.py build/debug/gbc-remote.gbc build/debug/gbc-remote.sym --map build/debug/gbc-remote.map --debug --coverage-output $(COVERAGE_DIR)/debug.json
-	$(PYTHON) tests/coverage_report.py build/debug/gbc-remote.map $(COVERAGE_DIR)/unit.json $(COVERAGE_DIR)/flow.json $(COVERAGE_DIR)/debug.json docs
+	$(PYTHON) tests/coverage_report.py build/debug/gbc-remote.map $(COVERAGE_DIR)/unit.json $(COVERAGE_DIR)/flow.json $(COVERAGE_DIR)/debug.json docs $(COVERAGE_DIR)/summary.json
 
 .PHONY: clean
 clean:

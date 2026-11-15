@@ -2,7 +2,9 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "tools"))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from badge_outputs import COLOR_GREEN, COLOR_ORANGE, COLOR_RED, COLOR_YELLOW_GREEN, badge_outputs, coverage_color
 from decode_log import ENTRY_COUNT, ENTRY_SIZE, HEADER_SIZE, LOG_OFFSET, LOG_SIZE, MAGIC, decode_log, format_log
 
 EXIT_SUCCESS = 0
@@ -59,7 +61,44 @@ def check_text_report():
     return "boot     1  BOOT   4 SRAM banks" in report and format_log(None).startswith("No event log")
 
 
+def check_coverage_colors():
+    return (
+        coverage_color(99.7) == COLOR_GREEN
+        and coverage_color(85.0) == COLOR_GREEN
+        and coverage_color(84.9) == COLOR_YELLOW_GREEN
+        and coverage_color(60.0) == COLOR_ORANGE
+        and coverage_color(10.0) == COLOR_RED
+    )
+
+
+def build_summary(unit_passed, flow_passed, debug_passed):
+    return {
+        "label_coverage": 99.7,
+        "unit": {"passed": unit_passed, "total": 50},
+        "flow": {"passed": flow_passed, "total": 19},
+        "debug": {"passed": debug_passed, "total": 4},
+    }
+
+
+def check_badge_outputs_for_a_passing_run():
+    outputs = badge_outputs(build_summary(50, 19, 4))
+    return (
+        outputs["coverage_status"] == "99.7%"
+        and outputs["unit_status"] == "50/50 passed"
+        and outputs["flow_color"] == COLOR_GREEN
+        and outputs["debug_status"] == "4/4 passed"
+    )
+
+
+def check_badge_outputs_for_a_failing_run():
+    outputs = badge_outputs(build_summary(50, 18, 4))
+    return outputs["flow_status"] == "18/19 passed" and outputs["flow_color"] == COLOR_RED and outputs["unit_color"] == COLOR_GREEN
+
+
 CHECKS = [
+    check_coverage_colors,
+    check_badge_outputs_for_a_passing_run,
+    check_badge_outputs_for_a_failing_run,
     check_wrong_magic,
     check_chronological_order,
     check_wrapped_log_starts_at_the_write_index,
