@@ -5,6 +5,7 @@ on:
     branches:
       - Main
       - develop
+      - 1-device-groups
   workflow_dispatch:
 
 permissions:
@@ -56,7 +57,9 @@ jobs:
           LABEL: label coverage
           STATUS: ${{ steps.results.outputs.coverage_status }}
           COLOR: ${{ steps.results.outputs.coverage_color }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPOSITORY: ${{ vars.BADGES_REPOSITORY }}
+          ACTOR: ${{ vars.BADGES_ACTOR }}
+          GITHUB_TOKEN: ${{ secrets.BADGES_TOKEN || secrets.GITHUB_TOKEN }}
 
       - name: Unit tests badge
         uses: RubbaBoy/BYOB@v1.3.0
@@ -65,7 +68,9 @@ jobs:
           LABEL: unit tests
           STATUS: ${{ steps.results.outputs.unit_status }}
           COLOR: ${{ steps.results.outputs.unit_color }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPOSITORY: ${{ vars.BADGES_REPOSITORY }}
+          ACTOR: ${{ vars.BADGES_ACTOR }}
+          GITHUB_TOKEN: ${{ secrets.BADGES_TOKEN || secrets.GITHUB_TOKEN }}
 
       - name: Flow tests badge
         uses: RubbaBoy/BYOB@v1.3.0
@@ -74,7 +79,9 @@ jobs:
           LABEL: flow tests
           STATUS: ${{ steps.results.outputs.flow_status }}
           COLOR: ${{ steps.results.outputs.flow_color }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPOSITORY: ${{ vars.BADGES_REPOSITORY }}
+          ACTOR: ${{ vars.BADGES_ACTOR }}
+          GITHUB_TOKEN: ${{ secrets.BADGES_TOKEN || secrets.GITHUB_TOKEN }}
 
       - name: Debug tests badge
         uses: RubbaBoy/BYOB@v1.3.0
@@ -83,7 +90,9 @@ jobs:
           LABEL: debug tests
           STATUS: ${{ steps.results.outputs.debug_status }}
           COLOR: ${{ steps.results.outputs.debug_color }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPOSITORY: ${{ vars.BADGES_REPOSITORY }}
+          ACTOR: ${{ vars.BADGES_ACTOR }}
+          GITHUB_TOKEN: ${{ secrets.BADGES_TOKEN || secrets.GITHUB_TOKEN }}
 
       - name: Platform badge
         uses: RubbaBoy/BYOB@v1.3.0
@@ -92,7 +101,9 @@ jobs:
           LABEL: platform
           STATUS: ${{ env.PLATFORM_STATUS }}
           COLOR: 007ec6
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPOSITORY: ${{ vars.BADGES_REPOSITORY }}
+          ACTOR: ${{ vars.BADGES_ACTOR }}
+          GITHUB_TOKEN: ${{ secrets.BADGES_TOKEN || secrets.GITHUB_TOKEN }}
 
       - name: Hardware tests badge
         uses: RubbaBoy/BYOB@v1.3.0
@@ -101,4 +112,6 @@ jobs:
           LABEL: hardware tests
           STATUS: ${{ env.HARDWARE_STATUS }}
           COLOR: fe7d37
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPOSITORY: ${{ vars.BADGES_REPOSITORY }}
+          ACTOR: ${{ vars.BADGES_ACTOR }}
+          GITHUB_TOKEN: ${{ secrets.BADGES_TOKEN || secrets.GITHUB_TOKEN }}
