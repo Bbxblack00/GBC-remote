@@ -13,6 +13,7 @@ SECTION "TestRunner", ROM0
 TestMain::
     di
     ld sp, wTestStackTop
+    call SramProbe_Run
     xor a
     ld [wTestCount], a
     ld [wTestRunFinished], a
@@ -61,7 +62,7 @@ Test_CallHl:
 Test_ResetWorld::
     call Storage_FormatMirror
     call Storage_FlushDirectory
-    call Storage_RebuildIndex
+    call Storage_RebuildCardIndex
     jp NameBuffer_Clear
 
 Test_ForgetMirror::

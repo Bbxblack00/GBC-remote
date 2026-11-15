@@ -2,10 +2,12 @@ INCLUDE "common.inc"
 
 SECTION "NameEntryState", WRAM0
 wInlineErrorCode:: ds 1
+wNameEntryKind:: ds 1
 
 SECTION "NameEntryScreen", ROM0
 
 NameEntryScreen_Run::
+    ld [wNameEntryKind], a
     call NameBuffer_Clear
     xor a
     ld [wKeyboardCursor], a
@@ -57,7 +59,7 @@ NameEntryScreen_Run::
     ld a, [wNameLength]
     and a
     jr nz, .validateName
-    call DiscardDialog_Run
+    call NameEntryScreen_ConfirmDiscard
     and a
     jr nz, .discardRefused
     Throw ERROR_CANCELLED
@@ -65,7 +67,7 @@ NameEntryScreen_Run::
     call NameEntryScreen_Draw
     jr .frameLoop
 .validateName
-    call Storage_ValidateName
+    call NameEntryScreen_ValidateName
     ld [wInlineErrorCode], a
     and a
     jr nz, .frameLoop
@@ -78,9 +80,37 @@ NameEntryScreen_PickKey:
     ld [wInlineErrorCode], a
     ret
 
+NameEntryScreen_ValidateName:
+    ld a, [wNameEntryKind]
+    cp NAME_KIND_SIGNAL
+    jp z, Storage_ValidateSignalName
+    jp Storage_ValidateCardName
+
+NameEntryScreen_ConfirmDiscard:
+    ld a, [wNameEntryKind]
+    add a
+    ld e, a
+    ld d, 0
+    ld hl, DiscardDialogDescriptors
+    add hl, de
+    ld a, [hli]
+    ld h, [hl]
+    ld l, a
+    jp ConfirmDialog_Run
+
 NameEntryScreen_Draw:
     call Screen_Begin
-    PrintTextAt TITLE_ROW, TITLE_COLUMN, StringTitleName
+    ld a, [wNameEntryKind]
+    add a
+    ld e, a
+    ld d, 0
+    ld hl, NameEntryTitles
+    add hl, de
+    ld a, [hli]
+    ld d, [hl]
+    ld e, a
+    ld hl, BACKGROUND_MAP_BASE + TITLE_ROW * BACKGROUND_MAP_ROW_STRIDE + TITLE_COLUMN
+    call Text_PrintString
     PrintTextAt LEGEND_FIRST_ROW, LEGEND_COLUMN, StringLegendNameFirst
     PrintTextAt LEGEND_SECOND_ROW, LEGEND_COLUMN, StringLegendNameSecond
     call Keyboard_DrawKeys

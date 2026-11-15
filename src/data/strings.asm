@@ -2,15 +2,27 @@ INCLUDE "common.inc"
 
 SECTION "Strings", ROM0
 
-StringTitleList::
-    db "SIGNALS", STRING_END
+StringTitleCards::
+    db "CARDS", STRING_END
+StringEmptyCard::
+    db "EMPTY CARD", STRING_END
+StringEmptyCardHint::
+    db "PRESS START TO ADD", STRING_END
+StringUsageLabel::
+    db "SIGNALS ", STRING_END
+StringUsageSeparator::
+    db "/", STRING_END
+StringLegendCardsFirst::
+    db "A=OPEN", STRING_END
 StringLegendListFirst::
     db "A=OK B=BACK", STRING_END
 StringLegendListSecond::
     db "START=NEW SELECT=DEL", STRING_END
 
-StringTitleName::
+StringTitleNameSignal::
     db "NAME THE SIGNAL", STRING_END
+StringTitleNameCard::
+    db "NAME THE CARD", STRING_END
 StringLegendNameFirst::
     db "A=PICK B=BACK", STRING_END
 StringLegendNameSecond::
@@ -34,6 +46,10 @@ StringLegendDelete::
 
 StringDiscardQuestion::
     db "DISCARD SIGNAL?", STRING_END
+StringDiscardCardQuestion::
+    db "DISCARD CARD?", STRING_END
+StringDiscardNothingSaved::
+    db "NOTHING IS SAVED", STRING_END
 StringDiscardDetail::
     db "NAME IS EMPTY", STRING_END
 StringDiscardWarning::
@@ -42,6 +58,27 @@ StringLegendDiscardFirst::
     db "A=YES: DISCARD", STRING_END
 StringLegendDiscardSecond::
     db "B=NO: KEEP EDITING", STRING_END
+
+StringDeleteCardQuestion::
+    db "DELETE CARD?", STRING_END
+StringDeleteCardWarningFirst::
+    db "THIS ALSO DELETES", STRING_END
+StringDeleteCardWarningSecond::
+    db "ALL ITS SIGNALS", STRING_END
+StringDeleteCardSure::
+    db "ARE YOU SURE?", STRING_END
+StringDeleteCardLostFirst::
+    db "ALL ITS SIGNALS", STRING_END
+StringDeleteCardLostSecond::
+    db "WILL BE LOST", STRING_END
+StringLegendContinue::
+    db "A=CONTINUE", STRING_END
+StringLegendCancel::
+    db "B=CANCEL", STRING_END
+StringLegendDeleteYes::
+    db "A=YES: DELETE", STRING_END
+StringLegendDeleteNo::
+    db "B=NO: KEEP IT", STRING_END
 
 StringDiagnosticTitle::
     db "SRAM TEST", STRING_END
@@ -68,9 +105,18 @@ StringDiagnosticAllOk::
 StringDiagnosticSomeBad::
     db "SOME BANKS BAD", STRING_END
 
+StringProbeBanksPrefix::
+    db "SRAM BANKS: ", STRING_END
+StringProbeBanksSuffix::
+    db "/16", STRING_END
+StringProbeKeptYes::
+    db "SRAM KEPT: YES", STRING_END
+StringProbeKeptNo::
+    db "SRAM KEPT: NO", STRING_END
+
 StringErrorPrefix::
     db "ERROR E", STRING_END
 StringErrorHint::
-    db "SEE README TABLE", STRING_END
+    db "SEE TECHNICAL.MD", STRING_END
 StringLegendError::
     db "A=OK", STRING_END

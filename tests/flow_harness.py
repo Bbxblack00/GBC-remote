@@ -12,14 +12,16 @@ SCREEN_HEIGHT_TILES = 18
 GLYPH_SPACE = 0
 GLYPH_LETTER_A = 1
 GLYPH_DIGIT_0 = 27
-GLYPH_SYMBOLS = {37: "=", 38: "?", 39: ".", 40: "-", 41: ":", 42: ">", 43: "!", 44: "_"}
+GLYPH_SYMBOLS = {37: "=", 38: "?", 39: ".", 40: "-", 41: ":", 42: ">", 43: "!", 44: "_", 45: "/"}
 UNKNOWN_GLYPH_CHARACTER = "#"
 RAW_SAMPLE_NO_LIGHT = 0xFF
 RAW_SAMPLE_LIGHT = 0xFD
 SENSOR_REGISTER_A_NO_DETECTION = 0xFF
 SENSOR_REGISTER_A_DETECTION = 0x00
 SAMPLES_PER_BYTE = 8
-SAMPLE_PAGE_COUNT = 16
+SAMPLE_PAGE_COUNT = 15
+RAM_SIZE_BYTES = 0x20000
+RAM_BANK_SIZE_BYTES = 0x2000
 SAMPLE_PAGE_SIZE_BYTES = 256
 SAMPLE_BYTE_COUNT = SAMPLE_PAGE_COUNT * SAMPLE_PAGE_SIZE_BYTES
 SAMPLE_COUNT = SAMPLE_BYTE_COUNT * SAMPLES_PER_BYTE
@@ -27,11 +29,13 @@ BUTTON_HOLD_FRAMES = 3
 SETTLE_FRAMES = 6
 SCREEN_WAIT_FRAME_LIMIT = 600
 BOOT_FRAMES = 200
+COVERAGE_TICK_FRAMES = 5
 SYMBOL_LINE_PATTERN = re.compile(r"^([0-9A-Fa-f]{2}):([0-9A-Fa-f]{4})\s+(\S+)$")
 CAPTURE_HOOK_SYMBOL = "Infrared_CaptureSamplesToBuffer.afterRead{}"
 REPLAY_HOOK_SYMBOL = "Infrared_ReplaySamplesFromBuffer.beforeWrite{}"
 DETECTION_SYMBOL = "Infrared_IsSignalDetected"
 JINGLE_SYMBOL = "Jingle_PlaySuccess"
+DELETION_JINGLE_SYMBOL = "Jingle_PlayDeletion"
 DETECTION_INVERT_INSTRUCTION_OFFSET = 2
 
 
@@ -62,23 +66,36 @@ def build_pulse_levels(pulse_width, pulse_count):
 
 
 class SimulatedRemote:
-    def __init__(self, emulator, symbols):
+    def __init__(self, emulator, symbols, coverage=None):
         self.emulator = emulator
         self.symbols = symbols
+        self.coverage = coverage
+        self.hooked_addresses = set()
         self.signal_present = False
         self.levels = []
         self.sample_index = 0
         self.transmitted = []
         self.jingle_count = 0
+        self.deletion_jingle_count = 0
         self.register_hook(DETECTION_SYMBOL, DETECTION_INVERT_INSTRUCTION_OFFSET, self.override_detection)
         for bit_index in range(SAMPLES_PER_BYTE):
             self.register_hook(CAPTURE_HOOK_SYMBOL.format(bit_index), 0, self.override_sample)
             self.register_hook(REPLAY_HOOK_SYMBOL.format(bit_index), 0, self.record_transmission)
         self.register_hook(JINGLE_SYMBOL, 0, self.count_jingle)
+        self.register_hook(DELETION_JINGLE_SYMBOL, 0, self.count_deletion_jingle)
 
     def register_hook(self, symbol, offset, callback):
         bank, address = self.symbols[symbol]
-        self.emulator.hook_register(bank, address + offset, callback, None)
+        hook_address = address + offset
+        self.hooked_addresses.add(hook_address)
+        self.emulator.hook_register(bank, hook_address, self.wrap_callback(callback, hook_address), None)
+
+    def wrap_callback(self, callback, hook_address):
+        def wrapped(context):
+            callback(context)
+            if self.coverage:
+                self.coverage.mark_address(hook_address)
+        return wrapped
 
     def arm(self, levels):
         self.levels = levels
@@ -105,9 +122,13 @@ class SimulatedRemote:
     def count_jingle(self, context):
         self.jingle_count += 1
 
+    def count_deletion_jingle(self, context):
+        self.deletion_jingle_count += 1
+
 
 class Session:
-    def __init__(self, rom_path, symbol_path, working_directory=None):
+    def __init__(self, rom_path, symbol_path, working_directory=None, coverage=None):
+        self.coverage = coverage
         self.symbols = load_symbols(symbol_path)
         self.owns_directory = working_directory is None
         self.directory = Path(working_directory or tempfile.mkdtemp(prefix="gbc-remote-flow-"))
@@ -117,18 +138,29 @@ class Session:
         self.emulator = None
         self.remote = None
 
-    def start(self, held_buttons=()):
+    def write_ram(self, patches):
+        ram_path = Path(str(self.rom_path) + ".ram")
+        image = bytearray(ram_path.read_bytes()) if ram_path.exists() else bytearray(RAM_SIZE_BYTES)
+        for offset, data in patches.items():
+            image[offset:offset + len(data)] = data
+        ram_path.write_bytes(image)
+
+    def start(self, held_buttons=(), ram_patches=None):
+        if ram_patches:
+            self.write_ram(ram_patches)
         self.emulator = PyBoy(str(self.rom_path), window="null")
-        self.remote = SimulatedRemote(self.emulator, self.symbols)
+        self.remote = SimulatedRemote(self.emulator, self.symbols, self.coverage)
+        if self.coverage:
+            self.coverage.attach(self.emulator, self.remote.hooked_addresses)
         for button in held_buttons:
             self.emulator.button_press(button)
-        self.emulator.tick(BOOT_FRAMES, False)
+        self.tick(BOOT_FRAMES)
         for button in held_buttons:
             self.emulator.button_release(button)
 
-    def power_cycle(self, held_buttons=()):
+    def power_cycle(self, held_buttons=(), ram_patches=None):
         self.emulator.stop(save=True)
-        self.start(held_buttons)
+        self.start(held_buttons, ram_patches)
 
     def close(self):
         if self.emulator is not None:
@@ -147,9 +179,18 @@ class Session:
     def screen_contains(self, text):
         return any(text in line for line in self.screen_text())
 
+    def tick(self, frames):
+        remaining = frames
+        while remaining > 0:
+            step = min(remaining, COVERAGE_TICK_FRAMES) if self.coverage else remaining
+            self.emulator.tick(step, False)
+            remaining -= step
+            if self.coverage:
+                self.coverage.flush()
+
     def press(self, button):
         self.emulator.button(button)
-        self.emulator.tick(BUTTON_HOLD_FRAMES, False)
+        self.tick(BUTTON_HOLD_FRAMES)
 
     def press_sequence(self, buttons):
         for button in buttons:
@@ -158,7 +199,7 @@ class Session:
     def wait_for_text(self, text):
         for _ in range(SCREEN_WAIT_FRAME_LIMIT):
             if any(text in line for line in self.screen_text()):
-                self.emulator.tick(SETTLE_FRAMES, False)
+                self.tick(SETTLE_FRAMES)
                 return True
-            self.emulator.tick(1, False)
+            self.tick(1)
         return False

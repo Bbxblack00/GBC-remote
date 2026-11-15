@@ -26,19 +26,27 @@ TestTable::
     RegisterTest Test_MountFormatsBlankStorage
     RegisterTest Test_MountDetectsCorruptedDirectory
     RegisterTest Test_MountRepairsEmptyCorruptedDirectorySilently
-    RegisterTest Test_CommitPersistsAcrossReboot
-    RegisterTest Test_DuplicateNameIsRejected
-    RegisterTest Test_BlankNameIsRejected
-    RegisterTest Test_FullStorageIsReported
-    RegisterTest Test_FindFreeSlotPicksLowestFree
-    RegisterTest Test_DeleteFreesSlotAndName
-    RegisterTest Test_DeletePersistsAcrossReboot
-    RegisterTest Test_InvalidSlotIsRejected
-    RegisterTest Test_IndexListsUsedSlotsInOrder
-    RegisterTest Test_SampleSignatureDetectsDamage
+    RegisterTest Test_MountRestoresDamagedPrimaryFromBackup
+    RegisterTest Test_CardPersistsAcrossReboot
+    RegisterTest Test_SignalPersistsAcrossReboot
+    RegisterTest Test_CardNameMustBeUnique
+    RegisterTest Test_SignalNameIsUniqueWithinCardOnly
+    RegisterTest Test_CardListFillsUpAtThirtyTwo
+    RegisterTest Test_CardAcceptsEightSignalsAndRejectsNinth
+    RegisterTest Test_SignalPoolRunsOutAtThirty
+    RegisterTest Test_DeleteSignalFreesSlot
+    RegisterTest Test_DeleteCardRemovesItsSignals
+    RegisterTest Test_InvalidIndicesAreRejected
+    RegisterTest Test_UsedSignalsAreCounted
+    RegisterTest Test_CardIndexListsUsedCardsInOrder
+    RegisterTest Test_CommitCardWithSignalStoresBoth
+    RegisterTest Test_SampleSlotsDoNotOverlap
+    RegisterTest Test_SampleSignatureIsPerSlot
     RegisterTest Test_SampleRoundTripsThroughSram
-    RegisterTest Test_LoadReportsDamagedSample
 
+    RegisterTest Test_SramProbeReportsKeptAndFullBankCount
+    RegisterTest Test_BankCountIsDetectedFromAliasedPatterns
+    RegisterTest Test_SlotLimitFollowsBankCount
     RegisterTest Test_QuietCaptureIsTooShort
     RegisterTest Test_ActiveCaptureIsAccepted
 

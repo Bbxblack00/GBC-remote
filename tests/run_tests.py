@@ -1,8 +1,11 @@
+import argparse
 import re
 import sys
 from pathlib import Path
 
 from pyboy import PyBoy
+
+from coverage import CoverageRecorder, excluded_section_names, load_code_labels
 
 TEST_RUN_FINISHED_MARKER = 0xA5
 TEST_PASSED = 0
@@ -33,12 +36,16 @@ def collect_test_names(symbols):
     return [name for _, name in entries]
 
 
-def run_test_rom(rom_path, symbols, test_count):
+def run_test_rom(rom_path, symbols, test_count, recorder):
     emulator = PyBoy(str(rom_path), window="null")
+    if recorder:
+        recorder.attach(emulator)
     finished_address = symbols["wTestRunFinished"]
     elapsed_frames = 0
     while emulator.memory[finished_address] != TEST_RUN_FINISHED_MARKER and elapsed_frames < FRAME_LIMIT:
         emulator.tick(1, False)
+        if recorder:
+            recorder.flush()
         elapsed_frames += 1
     finished = emulator.memory[finished_address] == TEST_RUN_FINISHED_MARKER
     executed_count = emulator.memory[symbols["wTestCount"]]
@@ -69,15 +76,29 @@ def report(test_names, finished, executed_count, results):
     return EXIT_FAILURE if failures else EXIT_SUCCESS
 
 
+def parse_arguments(arguments):
+    parser = argparse.ArgumentParser()
+    parser.add_argument("rom")
+    parser.add_argument("symbols")
+    parser.add_argument("--map")
+    parser.add_argument("--coverage-output")
+    return parser.parse_args(arguments)
+
+
 def main(arguments):
-    if len(arguments) != 2:
-        print("usage: run_tests.py <test_rom> <test_symbols>")
-        return EXIT_USAGE
-    rom_path, symbol_path = arguments
-    symbols = load_symbols(symbol_path)
+    options = parse_arguments(arguments)
+    symbols = load_symbols(options.symbols)
     test_names = collect_test_names(symbols)
-    finished, executed_count, results = run_test_rom(rom_path, symbols, len(test_names))
-    return report(test_names, finished, executed_count, results)
+    recorder = None
+    if options.coverage_output:
+        labels = load_code_labels(options.map, excluded_section_names("."))
+        recorder = CoverageRecorder(labels)
+    finished, executed_count, results = run_test_rom(options.rom, symbols, len(test_names), recorder)
+    exit_code = report(test_names, finished, executed_count, results)
+    if recorder:
+        passed = sum(1 for result in results if result == TEST_PASSED)
+        recorder.save(options.coverage_output, {"passed": passed, "total": len(test_names)})
+    return exit_code
 
 
 if __name__ == "__main__":

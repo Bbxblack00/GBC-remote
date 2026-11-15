@@ -3,8 +3,16 @@ INCLUDE "common.inc"
 SECTION "Jingle", ROM0
 
 Jingle_PlaySuccess::
-    call Audio_Enable
     ld hl, SuccessJingleNotes
+    jr Jingle_Play
+
+Jingle_PlayDeletion::
+    ld hl, DeletionJingleNotes
+
+Jingle_Play:
+    push hl
+    call Audio_Enable
+    pop hl
 .playNote
     ld a, [hli]
     ld e, a

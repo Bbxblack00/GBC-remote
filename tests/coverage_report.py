@@ -1,0 +1,137 @@
+import json
+import sys
+from pathlib import Path
+
+from coverage import excluded_section_names, load_code_labels
+
+EXIT_SUCCESS = 0
+EXIT_USAGE = 2
+COLOR_GREEN = "#4c1"
+COLOR_YELLOW_GREEN = "#a4a61d"
+COLOR_ORANGE = "#fe7d37"
+COLOR_RED = "#e05d44"
+COLOR_BLUE = "#007ec6"
+THRESHOLD_GOOD = 85.0
+THRESHOLD_FAIR = 70.0
+THRESHOLD_LOW = 50.0
+CHARACTER_WIDTH_PIXELS = 6.5
+BADGE_PADDING_PIXELS = 12
+BADGE_HEIGHT_PIXELS = 20
+
+
+def percentage(part, whole):
+    return 100.0 * part / whole if whole else 0.0
+
+
+def coverage_color(value):
+    if value >= THRESHOLD_GOOD:
+        return COLOR_GREEN
+    if value >= THRESHOLD_FAIR:
+        return COLOR_YELLOW_GREEN
+    if value >= THRESHOLD_LOW:
+        return COLOR_ORANGE
+    return COLOR_RED
+
+
+def badge_svg(label, value, color):
+    label_width = round(CHARACTER_WIDTH_PIXELS * len(label) + BADGE_PADDING_PIXELS)
+    value_width = round(CHARACTER_WIDTH_PIXELS * len(value) + BADGE_PADDING_PIXELS)
+    total_width = label_width + value_width
+    label_center = label_width / 2
+    value_center = label_width + value_width / 2
+    return (
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{total_width}" height="{BADGE_HEIGHT_PIXELS}" role="img" aria-label="{label}: {value}">'
+        f'<title>{label}: {value}</title>'
+        f'<linearGradient id="s" x2="0" y2="100%"><stop offset="0" stop-color="#bbb" stop-opacity=".1"/><stop offset="1" stop-opacity=".1"/></linearGradient>'
+        f'<clipPath id="r"><rect width="{total_width}" height="{BADGE_HEIGHT_PIXELS}" rx="3" fill="#fff"/></clipPath>'
+        f'<g clip-path="url(#r)"><rect width="{label_width}" height="{BADGE_HEIGHT_PIXELS}" fill="#555"/>'
+        f'<rect x="{label_width}" width="{value_width}" height="{BADGE_HEIGHT_PIXELS}" fill="{color}"/>'
+        f'<rect width="{total_width}" height="{BADGE_HEIGHT_PIXELS}" fill="url(#s)"/></g>'
+        f'<g fill="#fff" text-anchor="middle" font-family="Verdana,Geneva,DejaVu Sans,sans-serif" font-size="11">'
+        f'<text x="{label_center}" y="14">{label}</text><text x="{value_center}" y="14">{value}</text></g></svg>'
+    )
+
+
+def load_result(path):
+    return json.loads(Path(path).read_text())
+
+
+def section_statistics(labels, hits):
+    statistics = {}
+    for name, (section, _) in labels.items():
+        covered, total = statistics.get(section, (0, 0))
+        statistics[section] = (covered + (name in hits), total + 1)
+    return statistics
+
+
+def write_badges(output_directory, overall, unit, flow):
+    badge_directory = Path(output_directory) / "badges"
+    badge_directory.mkdir(parents=True, exist_ok=True)
+    unit_color = COLOR_GREEN if unit["passed"] == unit["total"] else COLOR_RED
+    flow_color = COLOR_GREEN if flow["passed"] == flow["total"] else COLOR_RED
+    badges = {
+        "coverage.svg": ("label coverage", f"{overall:.1f}%", coverage_color(overall)),
+        "unit-tests.svg": ("unit tests", f'{unit["passed"]}/{unit["total"]} passed', unit_color),
+        "flow-tests.svg": ("flow tests", f'{flow["passed"]}/{flow["total"]} passed', flow_color),
+        "platform.svg": ("platform", "Game Boy Color", COLOR_BLUE),
+        "hardware.svg": ("hardware tests", "partial", COLOR_ORANGE),
+    }
+    for file_name, (label, value, color) in badges.items():
+        (badge_directory / file_name).write_text(badge_svg(label, value, color))
+
+
+def write_report(output_directory, labels, hits, unit_hits, flow_hits, statistics):
+    total = len(labels)
+    covered = len(hits)
+    lines = [
+        "# Copertura dei test",
+        "",
+        "Generato da `make coverage`. Non modificare a mano.",
+        "",
+        "La copertura è misurata sulle **etichette** del codice (routine e punti di diramazione) raggiunte almeno una volta durante la suite di test su emulatore. Non è una copertura di riga e non misura i valori dei dati.",
+        "",
+        f"| Misura | Etichette | Percentuale |",
+        f"|---|---|---|",
+        f"| Totale | {covered} / {total} | {percentage(covered, total):.1f}% |",
+        f"| Solo unit test | {len(unit_hits & set(labels))} / {total} | {percentage(len(unit_hits & set(labels)), total):.1f}% |",
+        f"| Solo test di flusso | {len(flow_hits & set(labels))} / {total} | {percentage(len(flow_hits & set(labels)), total):.1f}% |",
+        "",
+        "## Per modulo",
+        "",
+        "| Modulo (sezione) | Etichette coperte | Percentuale |",
+        "|---|---|---|",
+    ]
+    for section in sorted(statistics):
+        section_covered, section_total = statistics[section]
+        lines.append(f"| {section} | {section_covered} / {section_total} | {percentage(section_covered, section_total):.1f}% |")
+    lines += ["", "## Etichette non raggiunte", ""]
+    missing = sorted((labels[name][0], name) for name in labels if name not in hits)
+    if missing:
+        lines += ["| Modulo | Etichetta |", "|---|---|"]
+        lines += [f"| {section} | `{name}` |" for section, name in missing]
+    else:
+        lines.append("Nessuna.")
+    (Path(output_directory) / "COVERAGE.md").write_text("\n".join(lines) + "\n")
+
+
+def main(arguments):
+    if len(arguments) != 4:
+        print("usage: coverage_report.py <application_map> <unit_result> <flow_result> <docs_directory>")
+        return EXIT_USAGE
+    map_path, unit_path, flow_path, output_directory = arguments
+    labels = load_code_labels(map_path, excluded_section_names("."))
+    unit = load_result(unit_path)
+    flow = load_result(flow_path)
+    unit_hits = set(unit["hits"])
+    flow_hits = set(flow["hits"])
+    hits = (unit_hits | flow_hits) & set(labels)
+    statistics = section_statistics(labels, hits)
+    overall = percentage(len(hits), len(labels))
+    write_badges(output_directory, overall, unit, flow)
+    write_report(output_directory, labels, hits, unit_hits, flow_hits, statistics)
+    print(f"label coverage: {len(hits)} / {len(labels)} = {overall:.1f}%")
+    return EXIT_SUCCESS
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
